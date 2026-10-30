@@ -551,26 +551,6 @@ class Revision:
     # ======================================================================
     # Clasificación y subrégimen (31 a 37)
     # ======================================================================
-    def r_17_flete_incluido(self):
-        """CPT, CIP, CFR, CIF, DAP…: si la factura separa el flete y el DUA lo deja dentro del valor."""
-        for f in self.b.facturas_comerciales:
-            if f.cond_vta not in ("CPT", "CIP", "CFR", "CIF", "DAP", "DPU", "DDP") or f.flete:
-                continue
-            doc = self._doc_de_factura(f)
-            if not doc:
-                continue
-            lineas = [l for l in doc.texto.upper().splitlines() if l.strip()]
-            for i, linea in enumerate(lineas):
-                if re.search(r"FLETE|FREIGHT|FRETE", linea):
-                    importe = r"\d{1,3}(?:[.,]\d{3})*[.,]\d{2}\b"
-                    m = re.findall(importe, linea) or (re.findall(importe, lineas[i + 1])[:1] if i + 1 < len(lineas) else [])
-                    if m:
-                        self.agregar(17, "Flete", "advertencia",
-                                     f"Factura {f.numero} ({f.cond_vta}): la factura separa un flete de {m[0]} y el DUA lo deja dentro del valor",
-                                     f"Línea: «{linea.strip()[:90]}». El valor en aduana lleva el flete solo hasta la frontera o el puerto de destino; "
-                                     "el tramo dentro de Uruguay no va. Separar valor de la mercadería y flete, y calcular el seguro sobre el valor sin flete.")
-                        break
-
     def r_31_certificado_origen(self):
         t = self.textos("origen")
         certs = [(it, n) for it in self.b.items for c, n in it.certificados if c.startswith("COD") or c.startswith("CERO")]

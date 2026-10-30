@@ -34,6 +34,7 @@ Resultados: **error** (probable error con impacto en tributos o validez), **adve
 | 17 | Flete prorrateado por FOB, solo hasta frontera / puerto de destino. | Sí (prorrateo parejo) |
 | 18 | Sin certificado de seguro: ficto 1%. Con certificado: el premio internacional. | Sí |
 | 19 | EXW o FCA: el flete cubre desde el punto de entrega. | Sí (busca el flete en sus documentos) |
+| 19b | CPT (y similares con flete incluido): se declara el precio total de la factura como valor, aunque la factura separe el flete y llegue a un destino dentro de Uruguay. No es error. | No se marca |
 
 ## Tributos
 
