@@ -10,6 +10,7 @@ Los números de regla son los del libro de criterios (docs/libro_de_criterios.md
 import re
 from dataclasses import dataclass
 
+from . import clientes as libro_clientes
 from .borrador import referencias_por_factura
 from .documentos import ocr_profundo
 from .numeros import aparece, coincidencia_codigo, digito_contenedor, fmt, num, num_libre, solo_alnum
@@ -30,10 +31,11 @@ class Control:
 
 
 class Revision:
-    def __init__(self, borrador, documentos=()):
+    def __init__(self, borrador, documentos=(), clientes=None):
         self.b = borrador
         self.docs = list(documentos)
         self.controles = []
+        self.clientes = clientes  # reglas del libro de clientes; None = leer el archivo
 
     # -- utilidades --------------------------------------------------------
     def agregar(self, regla, tema, resultado, titulo, detalle=""):
@@ -694,6 +696,23 @@ class Revision:
                 self.agregar(37, "Subrégimen", "error", "Los documentos hablan de reparación o garantía y el DUA es una importación definitiva común",
                              "Si el bien salió de Uruguay a reparar, corresponde reimportación tras exportación temporal citando esa salida. "
                              "Si es un reemplazo en garantía, revisar valor y naturaleza.")
+
+
+    def r_40_libro_de_clientes(self):
+        reglas = self.clientes if self.clientes is not None else libro_clientes.cargar()
+        for r in reglas:
+            if not r.aplica(self.b):
+                continue
+            cumple, detalle = libro_clientes.evaluar(r, self.b)
+            titulo = f"{r.cliente}: {r.explicacion or r.condicion}"
+            if cumple is None and not detalle:
+                self.agregar(40, "Cliente", "revisar", titulo, "Recordatorio del libro de clientes.")
+            elif cumple is None:
+                self.agregar(40, "Cliente", "revisar", titulo, detalle)
+            elif cumple:
+                self.agregar(40, "Cliente", "ok", titulo)
+            else:
+                self.agregar(40, "Cliente", "error", titulo, detalle)
 
 
 # ---------------------------------------------------------------------------

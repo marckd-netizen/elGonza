@@ -49,6 +49,7 @@ class Item:
     gastos: float = 0.0
     valor_dna: float = 0.0
     valor_dna_aj: float = 0.0
+    ajuste: float = 0.0     # % de ajuste de valor del ítem
     metodo: str = ""
     forma_pago: str = ""
     descripcion: str = ""
@@ -64,6 +65,7 @@ class Borrador:
     fecha: str = ""
     importador_rut: str = ""
     importador: str = ""
+    forma_pago_aduana: str = ""
     aduana: str = ""
     regimen: str = ""
     proveedor: str = ""
@@ -169,6 +171,7 @@ def parsear(texto):
         b.importador = _solo_nombre(m.group(2).strip())
     b.aduana = _busca(r"Aduana:\s*(\d+\s+[A-Z ]+)", todo, defecto="")
     b.regimen = _busca(r"Régimen:\s*(\d+)", todo, defecto="")
+    b.forma_pago_aduana = _busca(r"Forma Pago Aduana:\s*(\d+\s+\S+(?: \S+)*?)\s+-", todo, defecto="")
     b.proveedor = _busca(r"Proveedor\s*:\s*\d+\s+\w+\s+(.+?)\s+Fecha:", todo, defecto="")
     b.tipo_import = _busca(r"Tipo Import:\s*(\w)", todo, defecto="")
     b.cant_fac = _busca(r"Cant\.Fac:\s*(\d+)", todo, conv=int, defecto=0)
@@ -273,6 +276,7 @@ def _parsear_item(ls):
     it.gastos = _busca(r"Gtos U\$S:\s*(" + NUM + ")", texto, conv=num, defecto=0.0)
     it.valor_dna = _busca(r"Valor DNA \$:\s*(" + NUM + ")", texto, conv=num, defecto=0.0)
     it.valor_dna_aj = _busca(r"Valor DNA Aj\.\$:\s*(" + NUM + ")", texto, conv=num, defecto=0.0)
+    it.ajuste = _busca(r"Ajuste:\s*(" + NUM + r")\s*%", texto, conv=num, defecto=0.0)
     it.metodo = _busca(r"Método Valor:\s*(\d+)", texto, defecto="")
     it.forma_pago = _busca(r"F\.Pago:\s*(\d+)", texto, defecto="")
     it.descripcion = _busca(r"Descripción:\s*(.+)", texto, defecto="")

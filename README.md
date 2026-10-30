@@ -18,6 +18,18 @@ La carpeta tiene que tener un archivo cuyo nombre empiece con `Borrador` (el PDF
 El tipo de los demás documentos se deduce del nombre (`fact`, `inv`, `flete`, `seguro`, `cese`, `conc`, `bl`,
 `awb`, `guia`, `pack`, `thc`, `gastos`) y, si no alcanza, del contenido.
 
+## Libro de clientes
+
+Los criterios propios de cada cliente se anotan en `Documentos\elGonza\clientes.txt` (botón **Libro de clientes…** en la ventana). Una regla por línea:
+
+```
+DECIRAL | ajuste > 0 | Deciral siempre tiene ajuste de valor
+MADINOR | forma de pago aduana contiene CERT | Madinor siempre paga con certificados de crédito
+210297450018 | recordar | Devoto: confirmar el stock del depósito
+```
+
+El cliente puede ser parte del nombre o el RUT. Condiciones: `ajuste > 0`, `ajuste = N`, `forma de pago aduana = N`, `forma de pago aduana contiene TEXTO` y `recordar` (solo muestra la nota). Si no se cumple, el informe lo marca como error.
+
 ## Descarga
 
 Cada cambio en el repositorio arma el paquete en GitHub Actions (flujo **Windows**). El artefacto

@@ -129,8 +129,17 @@ def ventana():
         boton.configure(state="disabled")
         threading.Thread(target=trabajar, args=(carpeta,), daemon=True).start()
 
-    boton = tk.Button(marco, text="Elegir carpeta y revisar…", command=elegir, padx=10, pady=4)
-    boton.pack(anchor="w", pady=8)
+    def abrir_libro():
+        from .clientes import cargar, ruta_libro
+        cargar()  # lo crea con ejemplos si no existe
+        ruta = ruta_libro()
+        os.startfile(str(ruta)) if sys.platform == "win32" else webbrowser.open(ruta.as_uri())
+
+    botones = tk.Frame(marco)
+    botones.pack(anchor="w", pady=8, fill="x")
+    boton = tk.Button(botones, text="Elegir carpeta y revisar…", command=elegir, padx=10, pady=4)
+    boton.pack(side="left")
+    tk.Button(botones, text="Libro de clientes…", command=abrir_libro, padx=10, pady=4).pack(side="left", padx=8)
     log.pack(fill="both", expand=True)
     raiz.mainloop()
     return 0
