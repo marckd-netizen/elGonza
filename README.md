@@ -23,12 +23,13 @@ El tipo de los demás documentos se deduce del nombre (`fact`, `inv`, `flete`, `
 Los criterios propios de cada cliente se anotan en `Documentos\elGonza\clientes.txt` (botón **Libro de clientes…** en la ventana). Una regla por línea:
 
 ```
-DECIRAL | ajuste > 0 | Deciral siempre tiene ajuste de valor
+DECIRAL | vinculacion = si | Deciral: hay que declarar vinculación en el precio
+DECIRAL | ajuste = 10,28 | Deciral ajusta el valor un 10,28% sobre el FOB/FCA
 MADINOR | forma de pago iva = 2 | Madinor siempre paga el IVA con certificados de crédito (DGI)
 210297450018 | recordar | Devoto: confirmar el stock del depósito
 ```
 
-El cliente puede ser parte del nombre o el RUT. Condiciones: `ajuste > 0`, `ajuste = N`, `forma de pago aduana = N`, `forma de pago iva = N` (o `contiene TEXTO`) y `recordar` (solo muestra la nota). Si no se cumple, el informe lo marca como error.
+El cliente puede ser parte del nombre o el RUT. Condiciones: `ajuste > 0`, `ajuste = N`, `forma de pago aduana = N`, `forma de pago iva = N` (o `contiene TEXTO`; si el despacho no paga IVA ni IRAE queda como advertencia), `vinculacion = si` y `recordar` (solo muestra la nota). Si no se cumple, el informe lo marca como error.
 
 ## Descarga
 

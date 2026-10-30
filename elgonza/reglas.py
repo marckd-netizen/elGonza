@@ -709,6 +709,8 @@ class Revision:
                 self.agregar(40, "Cliente", "revisar", titulo, "Recordatorio del libro de clientes.")
             elif cumple is None:
                 self.agregar(40, "Cliente", "revisar", titulo, detalle)
+            elif cumple == "advertencia":
+                self.agregar(40, "Cliente", "advertencia", titulo, detalle)
             elif cumple:
                 self.agregar(40, "Cliente", "ok", titulo)
             else:

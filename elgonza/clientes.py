@@ -10,7 +10,9 @@ CLIENTE es una parte del nombre del importador o su RUT. Condiciones que entiend
     ajuste = 5                         todos los ítems llevan ese % de ajuste
     forma de pago aduana = 7           código de la forma de pago a la Aduana
     forma de pago aduana contiene CERT texto que tiene que aparecer en la forma de pago
-    forma de pago iva = 2              igual para la forma de pago del IVA (2 = DGI, certificados de crédito)
+    forma de pago iva = 2              igual para la forma de pago del IVA (2 = DGI, certificados de crédito).
+                                       Si el despacho no paga IVA ni IRAE, no cumplirla es solo advertencia.
+    vinculacion = si                   el borrador tiene que declarar vinculación
     recordar                           solo muestra la explicación para tenerla presente
 """
 import os
@@ -22,11 +24,12 @@ EJEMPLO = """# Libro de clientes de elGonza
 # Una regla por línea:  CLIENTE | condición | explicación
 # CLIENTE puede ser parte del nombre del importador o su RUT.
 # Condiciones: ajuste > 0 · ajuste = N · forma de pago aduana = N · forma de pago iva = N
-#              (también «contiene TEXTO» en vez de «= N») · recordar
+#              (también «contiene TEXTO» en vez de «= N») · vinculacion = si · recordar
 # Las líneas que empiezan con # no se leen.
 
-DECIRAL | ajuste > 0 | Deciral siempre tiene ajuste de valor
-MADINOR | forma de pago iva = 2 | Madinor siempre paga el IVA con certificados de crédito (DGI)
+DECIRAL | vinculacion = si | Deciral: hay que declarar vinculación en el precio
+DECIRAL | ajuste = 10,28 | Deciral ajusta el valor un 10,28% sobre el FOB/FCA
+MADINOR | forma de pago iva = 2 | Madinor paga el IVA y el IRAE con certificados de crédito (forma de pago 2)
 """
 
 
@@ -94,5 +97,18 @@ def evaluar(regla, b):
         actual = (b.forma_pago_aduana if m.group(1) == "aduana" else b.forma_pago_iva) or ""
         esperado = m.group(3).strip()
         ok = actual.split()[0] == esperado if m.group(2) == "=" and actual else esperado.upper() in actual.upper()
-        return ok, f"El borrador dice «{actual or 'sin forma de pago'}»"
+        detalle = f"El borrador dice «{actual or 'sin forma de pago'}»"
+        if not ok and m.group(1) == "iva" and not _paga_iva_irae(b):
+            return "advertencia", detalle + ". El despacho no paga IVA ni IRAE, así que no es error, pero es preferible declararlo así."
+        return ok, detalle
+    m = re.fullmatch(r"vinculaci[oó]n\s*=\s*(s[ií]|no)", cond)
+    if m:
+        quiere = m.group(1).startswith("s")
+        tiene = (b.vinculacion or "").upper().startswith("S")
+        return quiere == tiene, f"El borrador dice «Vinculación: {b.vinculacion or '?'}»"
     return None, f"No entiendo la condición «{regla.condicion}» (línea {regla.linea} del libro de clientes)"
+
+
+def _paga_iva_irae(b):
+    claves = ("I.V.A.Importación", "I.V.A.Anticipado", "Anticipo IRAE")
+    return any((b.autoliquidacion or {}).get(k, 0) for k in claves)

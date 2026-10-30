@@ -67,6 +67,7 @@ class Borrador:
     importador: str = ""
     forma_pago_aduana: str = ""
     forma_pago_iva: str = ""
+    vinculacion: str = ""
     aduana: str = ""
     regimen: str = ""
     proveedor: str = ""
@@ -172,6 +173,7 @@ def parsear(texto):
         b.importador = _solo_nombre(m.group(2).strip())
     b.aduana = _busca(r"Aduana:\s*(\d+\s+[A-Z ]+)", todo, defecto="")
     b.regimen = _busca(r"Régimen:\s*(\d+)", todo, defecto="")
+    b.vinculacion = _busca(r"Vinculaci[oó]n:\s*(\S+)", todo, defecto="")
     b.forma_pago_iva = _busca(r"Forma Pago IVA:\s*(\d+\s+\S+(?: \S+)*)", todo, defecto="")
     b.forma_pago_aduana = _busca(r"Forma Pago Aduana:\s*(\d+\s+\S+(?: \S+)*?)\s+-", todo, defecto="")
     b.proveedor = _busca(r"Proveedor\s*:\s*\d+\s+\w+\s+(.+?)\s+Fecha:", todo, defecto="")

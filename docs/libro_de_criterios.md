@@ -85,3 +85,12 @@ Resultados: **error** (probable error con impacto en tributos o validez), **adve
 | # | Regla |
 |---|---|
 | 38 | Direcciones de importador y proveedor: salen de la base de datos del despachante. |
+
+## Criterios por cliente
+
+Se cargan en el libro de clientes (`Documentos\elGonza\clientes.txt`).
+
+| Cliente | Criterio |
+|---|---|
+| Madinor | Paga IVA e IRAE con certificados de crédito: forma de pago IVA 2. Si el despacho no paga IVA ni IRAE no es error, pero es preferible declararla igual. En el historial, 560 de 575 despachos con forma 2; el 144330 fue un error. |
+| Deciral | Declarar vinculación en el precio. Ajuste de valor de 10,28% sobre el FOB/FCA. |
