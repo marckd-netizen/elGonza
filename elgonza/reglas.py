@@ -384,6 +384,12 @@ class Revision:
         if b.items and suma and not self.cerca(suma, b.vna_pesos, 2 + len(b.items), 0.0002):
             self.agregar(14, "Valores", "error", "La suma del Valor DNA de los ítems no da el VNA en pesos", f"{fmt(suma)} vs {fmt(b.vna_pesos)}")
 
+    def r_13_tipo_de_cambio(self):
+        tc = self.b.tc
+        if tc and abs(tc * 100 - round(tc * 100)) < 1e-6 and abs(tc - round(tc, 1)) < 1e-6:
+            self.agregar(13, "Valores", "revisar", f"T/C {fmt(tc, 4)} parece cargado a mano",
+                         "El tipo de cambio del BCU suele tener cuatro decimales. Confirmar el del día.")
+
     def r_15_gastos(self):
         b = self.b
         if not b.gastos and not any(i.gastos for i in b.items):
