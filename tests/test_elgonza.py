@@ -62,6 +62,8 @@ def test_tipo_por_nombre():
     assert tipo_por_nombre("149385 CIA AWB Form PDF (85).pdf") == "transporte"
     assert tipo_por_nombre("149385 CARTA_DE_FLETE (86).pdf") == "flete"
     assert tipo_por_nombre("149186 pack.pdf") == "packing"
+    assert tipo_por_nombre("FATURA COMERCIAL - 2026-10-30T100413.440.pdf") == "factura"
+    assert tipo_por_nombre("CO EXP-0285-755.pdf") == "origen"
 
 
 # --- borrador ------------------------------------------------------------
@@ -180,6 +182,7 @@ ESPERADOS = {
     "149097": [(32, "revisar")],
     "149186": [(10, "error"), (2, "advertencia"), (29, "revisar")],
     "149385": [(37, "error")],
+    "149440": [(17, "advertencia"), (31, "ok")],
 }
 
 

@@ -206,11 +206,11 @@ def parsear(texto):
 
     # Facturas del cabezal: línea FACN/FACC + línea siguiente con condición, lugar y cantidad de ítems
     for i, l in enumerate(lineas):
-        m = re.match(r"(FAC[NC])\s+(\S+)\s+(\d{1,2}/\d{2}/\d{4})\s+(\d{3}/\d{0,3})\s*(.*)$", l)
+        m = re.match(r"(FAC[NC])\s+(\S+)\s+(\d{1,2}/\d{2}/\d{4})\s+(\d{1,3}/\s*\d{0,3})\s*(.*)$", l)
         if not m:
             continue
         resto = m.group(5)
-        f = Factura(tipo=m.group(1), numero=m.group(2), fecha=m.group(3), origen=m.group(4))
+        f = Factura(tipo=m.group(1), numero=m.group(2), fecha=m.group(3), origen=m.group(4).replace(" ", ""))
         importes = re.findall(r"(" + NUM + r")\s+(\d{3})", resto)
         if importes:
             f.valor, f.moneda = num(importes[0][0]), importes[0][1]

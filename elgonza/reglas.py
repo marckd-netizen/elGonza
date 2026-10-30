@@ -45,7 +45,7 @@ class Revision:
         return any(d.tipo in tipos and d.texto.strip() for d in self.docs)
 
     def a_usd(self, importe, moneda):
-        if moneda in ("", USD):
+        if moneda in ("", USD) or not importe:
             return importe
         if moneda == self.b.moneda:
             return importe * self.b.arbitraje
@@ -243,13 +243,13 @@ class Revision:
             self.agregar(8, "Pesos", "error", "Peso neto total mayor que el bruto")
         if b.peso_neto and abs(b.peso_neto * 1000 - round(b.peso_neto * 1000)) < 1e-6 and re.search(r"\.99\d$|999$", f"{b.peso_neto:.3f}"):
             self.agregar(29, "Pesos", "revisar", f"El neto {fmt(b.peso_neto, 3)} parece estimado", "Confirmar contra el packing.")
-        docs_peso = self.textos("transporte", "packing", "flete")
+        docs_peso = self.textos("transporte", "packing", "flete") or self.textos("factura", "origen")
         if docs_peso.strip():
             if aparece(b.peso_bruto, docs_peso, 3) or aparece(b.peso_bruto, docs_peso, 2) or aparece(round(b.peso_bruto), docs_peso, 0):
                 self.agregar(8, "Pesos", "ok", f"Peso bruto {fmt(b.peso_bruto, 3)} encontrado en transporte/packing")
             else:
                 lb = b.peso_bruto / 0.45359237
-                self.agregar(8, "Pesos", "advertencia", f"No encontré el peso bruto {fmt(b.peso_bruto, 3)} kg en el documento de transporte ni en el packing",
+                self.agregar(8, "Pesos", "advertencia", f"No encontré el peso bruto {fmt(b.peso_bruto, 3)} kg en los documentos",
                              f"Si el documento está en libras serían {fmt(lb, 0)} lb (regla 30).")
             if aparece(b.total_bultos, docs_peso, 0):
                 self.agregar(28, "Bultos", "ok", f"Los {fmt(b.total_bultos, 0)} bultos figuran en transporte/packing")
@@ -551,6 +551,50 @@ class Revision:
     # ======================================================================
     # Clasificación y subrégimen (31 a 37)
     # ======================================================================
+    def r_17_flete_incluido(self):
+        """CPT, CIP, CFR, CIF, DAP…: si la factura separa el flete y el DUA lo deja dentro del valor."""
+        for f in self.b.facturas_comerciales:
+            if f.cond_vta not in ("CPT", "CIP", "CFR", "CIF", "DAP", "DPU", "DDP") or f.flete:
+                continue
+            doc = self._doc_de_factura(f)
+            if not doc:
+                continue
+            lineas = [l for l in doc.texto.upper().splitlines() if l.strip()]
+            for i, linea in enumerate(lineas):
+                if re.search(r"FLETE|FREIGHT|FRETE", linea):
+                    importe = r"\d{1,3}(?:[.,]\d{3})*[.,]\d{2}\b"
+                    m = re.findall(importe, linea) or (re.findall(importe, lineas[i + 1])[:1] if i + 1 < len(lineas) else [])
+                    if m:
+                        self.agregar(17, "Flete", "advertencia",
+                                     f"Factura {f.numero} ({f.cond_vta}): la factura separa un flete de {m[0]} y el DUA lo deja dentro del valor",
+                                     f"Línea: «{linea.strip()[:90]}». El valor en aduana lleva el flete solo hasta la frontera o el puerto de destino; "
+                                     "el tramo dentro de Uruguay no va. Separar valor de la mercadería y flete, y calcular el seguro sobre el valor sin flete.")
+                        break
+
+    def r_31_certificado_origen(self):
+        t = self.textos("origen")
+        certs = [(it, n) for it in self.b.items for c, n in it.certificados if c.startswith("COD") or c.startswith("CERO")]
+        if not certs:
+            if t.strip():
+                self.agregar(31, "Origen", "revisar", "Hay certificado de origen en la carpeta y ningún ítem lo cita")
+            return
+        if not t.strip():
+            self.agregar(31, "Origen", "revisar", "El DUA cita certificado de origen y no está en la carpeta (o no se pudo leer)")
+            return
+        for it, n in certs:
+            nro = re.sub(r"^VU", "", n)
+            if coincidencia_codigo(nro, t):
+                self.agregar(31, "Origen", "ok", f"Ítem {it.nro}: certificado de origen {n} coincide")
+            else:
+                self.agregar(31, "Origen", "advertencia", f"Ítem {it.nro}: no encontré el certificado {n} en el certificado de origen")
+            ncm = re.sub(r"\D", "", it.ncm)[:8]
+            if not re.search(r"\s?".join(ncm[:4]) + r"[.\s]?" + ncm[4:6] + r"[.\s]?" + ncm[6:8], t):
+                self.agregar(31, "Origen", "advertencia", f"Ítem {it.nro}: el NCM {it.ncm} no figura en el certificado de origen",
+                             "La preferencia aplica solo si el certificado ampara esa posición.")
+        for f in self.b.facturas_comerciales:
+            if not buscar_codigo(f.numero.split("/")[0], t):
+                self.agregar(31, "Origen", "advertencia", f"El certificado de origen no cita la factura {f.numero}")
+
     def r_32_hs(self):
         t = self.textos("transporte", "factura").upper()
         if not t.strip():

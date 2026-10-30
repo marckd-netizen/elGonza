@@ -16,15 +16,17 @@ from pathlib import Path
 TIPOS = {
     "borrador": ["borrador"],
     "flete": ["flete", "freight", "carta de flete"],
+    "origen": ["co", "certificado de origen", "origem", "origin"],
     "seguro": ["seguro", "cese", "insurance", "poliza"],
     "packing": ["pack", "empaque"],
     "gastos": ["gastos", "thc", "local"],
     "transporte": ["conc", "bl", "awb", "guia", "crt", "mic", "hbl", "mbl", "conocimiento"],
-    "factura": ["fact", "fac", "inv", "factura", "invoice"],
+    "factura": ["fact", "fac", "fatura", "inv", "factura", "invoice"],
 }
 
 # Si el nombre no alcanza, se mira el contenido
 PISTAS_CONTENIDO = [
+    ("origen", ["CERTIFICADO DE ORIGEN", "CERTIFICADO DE ORIGEM", "CERTIFICATE OF ORIGIN"]),
     ("transporte", ["BILL OF LADING", "AIR WAYBILL", "CONOCIMIENTO DE EMBARQUE", "CARTA DE PORTE", "WAYBILL"]),
     ("packing", ["PACKING LIST", "LISTA DE EMPAQUE"]),
     ("seguro", ["CERTIFICADO DE SEGURO", "INSURANCE CERTIFICATE", "POLIZA"]),
@@ -115,7 +117,7 @@ def extraer_texto(ruta, usar_ocr=True, dpi=300):
         import fitz
     ruta = Path(ruta)
     datos = ruta.read_bytes()
-    clave = hashlib.sha1(datos).hexdigest()
+    clave = "v2-" + hashlib.sha1(datos).hexdigest()
     cache = carpeta_cache() / f"{clave}.json"
     if cache.exists():
         try:
@@ -133,6 +135,8 @@ def extraer_texto(ruta, usar_ocr=True, dpi=300):
         doc, paginas = None, [None]
     for pagina in paginas:
         t = pagina.get_text() if pagina is not None else ""
+        if len(t.strip()) >= 40:
+            t = _texto_con_columnas(datos, pagina.number) or t
         if len(t.strip()) < 40 and usar_ocr:
             t = _ocr_pagina(pagina, datos if pagina is None else None, dpi)
             fue_ocr = True
@@ -143,6 +147,17 @@ def extraer_texto(ruta, usar_ocr=True, dpi=300):
     except OSError:
         pass
     return texto, fue_ocr
+
+
+def _texto_con_columnas(datos, nro_pagina):
+    """Texto respetando la disposición (etiqueta y valor en la misma línea)."""
+    try:
+        import pdfplumber
+        with pdfplumber.open(io.BytesIO(datos)) as pdf:
+            t = pdf.pages[nro_pagina].extract_text(layout=True) or ""
+        return "\n".join(re.sub(r"[ \t]+$", "", l) for l in t.splitlines() if l.strip())
+    except Exception:
+        return ""
 
 
 def _ocr_pagina(pagina, datos_imagen, dpi):
