@@ -217,10 +217,15 @@ def test_libro_de_clientes():
     from elgonza.borrador import Borrador, Item
     from elgonza.reglas import Revision
     reglas = clientes.leer(clientes.EJEMPLO + "\n210297450018 | recordar | Devoto: revisar stock\nFOO | cualquier cosa | x\n")
-    b = Borrador(importador="DECIRAL S.A.", forma_pago_aduana="5 SISTARBANC", vinculacion="Si")
-    b.items = [Item(nro=1, ncm="3305.10", ajuste=10.28), Item(nro=2, ncm="3305.10", ajuste=0.0)]
+    from elgonza.borrador import Factura
+    b = Borrador(importador="DECIRAL S.A.", forma_pago_aduana="5 SISTARBANC", vinculacion="Si", gastos=4791.06)
+    b.facturas = [Factura("FACN", "E-0043-00001897", "23/02/2026", valor=46605.90), Factura("FACC", "A-70974", "", valor=980.0)]
+    titulo = "DECIRAL: Deciral: sumar a mano un 10,28% del FOB/FCA al valor en aduana (va en los gastos)"
     res = [(c.resultado, c.titulo) for c in Revision(b, [], clientes=reglas).ejecutar() if c.regla == 40]
-    assert ("error", "DECIRAL: Deciral ajusta el valor un 10,28% sobre el FOB/FCA") in res
+    assert ("ok", titulo) in res
+    b.gastos = 0.0
+    res = [(c.resultado, c.titulo) for c in Revision(b, [], clientes=reglas).ejecutar() if c.regla == 40]
+    assert ("error", titulo) in res
     assert ("ok", "DECIRAL: Deciral: hay que declarar vinculación en el precio") in res
     b = Borrador(importador="MADINOR S.A.", forma_pago_aduana="5 SISTARBANC", forma_pago_iva="1 IDEM. FORMA PAGO ADUAN",
                  autoliquidacion={"I.V.A.Importación": 1000.0})

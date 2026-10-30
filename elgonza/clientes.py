@@ -9,6 +9,8 @@ cuando el proveedor del borrador contiene ese texto. Condiciones que entiende el
 
     ajuste > 0                         todos los ítems llevan ajuste de valor
     ajuste = 5                         todos los ítems llevan ese % de ajuste
+    gastos = 10,28% fob                los gastos del borrador son ese % del FOB/FCA de las facturas
+                                       (ajuste calculado a mano y sumado al valor en aduana)
     forma de pago aduana = 7           código de la forma de pago a la Aduana
     forma de pago aduana contiene CERT texto que tiene que aparecer en la forma de pago
     forma de pago iva = 2              igual para la forma de pago del IVA (2 = DGI, certificados de crédito).
@@ -26,13 +28,13 @@ from pathlib import Path
 EJEMPLO = """# Libro de clientes de elGonza
 # Una regla por línea:  CLIENTE | condición | explicación
 # CLIENTE puede ser parte del nombre del importador o su RUT.
-# Condiciones: ajuste > 0 · ajuste = N · forma de pago aduana = N · forma de pago iva = N
+# Condiciones: ajuste > 0 · ajuste = N · gastos = N% fob · forma de pago aduana = N · forma de pago iva = N
 #              (también «contiene TEXTO» en vez de «= N») · vinculacion = si · metodo = N · pago = N · recordar
 # Con «CLIENTE / PROVEEDOR» la regla vale solo para ese proveedor.
 # Las líneas que empiezan con # no se leen.
 
 DECIRAL | vinculacion = si | Deciral: hay que declarar vinculación en el precio
-DECIRAL | ajuste = 10,28 | Deciral ajusta el valor un 10,28% sobre el FOB/FCA
+DECIRAL | gastos = 10,28% fob | Deciral: sumar a mano un 10,28% del FOB/FCA al valor en aduana (va en los gastos)
 BUSCALIBRE / BUSCALIBRE | vinculacion = si | Buscalibre le compra a Buscalibre: declarar vinculación (no afecta el precio)
 SCOTIABANK / IDEMIA | pago = 4 | Scotiabank no paga las tarjetas de Idemia: declarar sin pago
 SCOTIABANK / IDEMIA | metodo = 2 | Scotiabank - Idemia: método de valoración 2
@@ -101,6 +103,16 @@ def evaluar(regla, b):
             return True, ""
         lista = ", ".join(f"{it.nro} ({it.ajuste:g}%)" for it in malos[:10]) + ("…" if len(malos) > 10 else "")
         return False, f"Ítems sin el ajuste esperado: {lista}"
+    m = re.fullmatch(r"gastos\s*=\s*([\d.,]+)\s*%\s*(?:del?\s+)?(?:fob|fca|fob/fca)?", cond)
+    if m:
+        pct = float(m.group(1).replace(",", "."))
+        fob = sum(f.valor for f in b.facturas_comerciales) * (b.arbitraje or 1.0)
+        if not fob:
+            return None, "No pude leer el FOB/FCA de las facturas para comprobar el ajuste"
+        esperado = fob * pct / 100
+        gastos = b.gastos or sum(it.gastos for it in b.items)
+        detalle = f"FOB/FCA U$S {fob:,.2f} × {pct:g}% = U$S {esperado:,.2f}; gastos del borrador U$S {gastos:,.2f}"
+        return abs(gastos - esperado) <= max(1.0, esperado * 0.01), detalle
     m = re.fullmatch(r"forma de pago (aduana|iva)\s*(=|contiene)\s*(.+)", cond)
     if m:
         actual = (b.forma_pago_aduana if m.group(1) == "aduana" else b.forma_pago_iva) or ""
