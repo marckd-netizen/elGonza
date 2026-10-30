@@ -94,3 +94,5 @@ Se cargan en el libro de clientes (`Documentos\elGonza\clientes.txt`).
 |---|---|
 | Madinor | Paga IVA e IRAE con certificados de crédito: forma de pago IVA 2. Si el despacho no paga IVA ni IRAE no es error, pero es preferible declararla igual. En el historial, 560 de 575 despachos con forma 2; el 144330 fue un error. |
 | Deciral | Declarar vinculación en el precio. Ajuste de valor de 10,28% sobre el FOB/FCA. |
+| Buscalibre | Cuando le compra a Buscalibre: declarar vinculación (no afecta el precio). |
+| Scotiabank | Cuando le compra a Idemia Colombia: no paga las tarjetas, va sin pago (F.Pago 4) y método de valoración 2. |

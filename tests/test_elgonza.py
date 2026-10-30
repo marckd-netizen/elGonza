@@ -231,3 +231,16 @@ def test_libro_de_clientes():
     assert all(c.resultado == "ok" for c in Revision(b, [], clientes=reglas).ejecutar() if c.regla == 40)
     b = Borrador(importador="DEVOTO HNOS.S.A.", importador_rut="210297450018")
     assert any(c.resultado == "revisar" for c in Revision(b, [], clientes=reglas).ejecutar() if c.regla == 40)
+
+
+def test_libro_clientes_con_proveedor():
+    from elgonza import clientes
+    from elgonza.borrador import Borrador, Item
+    from elgonza.reglas import Revision
+    reglas = clientes.leer(clientes.EJEMPLO)
+    b = Borrador(importador="SCOTIABANK URUGUAY S.A.", proveedor="IDEMIA AV DORADO")
+    b.items = [Item(nro=1, ncm="8523.52", metodo="01", forma_pago="3")]
+    res = [c.resultado for c in Revision(b, [], clientes=reglas).ejecutar() if c.regla == 40]
+    assert res.count("error") == 2
+    b.proveedor = "OTRO PROVEEDOR"
+    assert not [c for c in Revision(b, [], clientes=reglas).ejecutar() if c.regla == 40]

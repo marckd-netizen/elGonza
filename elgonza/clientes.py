@@ -4,7 +4,8 @@ Es un archivo de texto en Documentos\\elGonza\\clientes.txt, una regla por líne
 
     CLIENTE | condición | explicación
 
-CLIENTE es una parte del nombre del importador o su RUT. Condiciones que entiende el programa:
+CLIENTE es una parte del nombre del importador o su RUT. Con «CLIENTE / PROVEEDOR» la regla vale solo
+cuando el proveedor del borrador contiene ese texto. Condiciones que entiende el programa:
 
     ajuste > 0                         todos los ítems llevan ajuste de valor
     ajuste = 5                         todos los ítems llevan ese % de ajuste
@@ -13,6 +14,8 @@ CLIENTE es una parte del nombre del importador o su RUT. Condiciones que entiend
     forma de pago iva = 2              igual para la forma de pago del IVA (2 = DGI, certificados de crédito).
                                        Si el despacho no paga IVA ni IRAE, no cumplirla es solo advertencia.
     vinculacion = si                   el borrador tiene que declarar vinculación
+    metodo = 2                         método de valoración de todos los ítems
+    pago = 4                           forma de pago (F.Pago) de todos los ítems; 4 = sin pago
     recordar                           solo muestra la explicación para tenerla presente
 """
 import os
@@ -24,11 +27,15 @@ EJEMPLO = """# Libro de clientes de elGonza
 # Una regla por línea:  CLIENTE | condición | explicación
 # CLIENTE puede ser parte del nombre del importador o su RUT.
 # Condiciones: ajuste > 0 · ajuste = N · forma de pago aduana = N · forma de pago iva = N
-#              (también «contiene TEXTO» en vez de «= N») · vinculacion = si · recordar
+#              (también «contiene TEXTO» en vez de «= N») · vinculacion = si · metodo = N · pago = N · recordar
+# Con «CLIENTE / PROVEEDOR» la regla vale solo para ese proveedor.
 # Las líneas que empiezan con # no se leen.
 
 DECIRAL | vinculacion = si | Deciral: hay que declarar vinculación en el precio
 DECIRAL | ajuste = 10,28 | Deciral ajusta el valor un 10,28% sobre el FOB/FCA
+BUSCALIBRE / BUSCALIBRE | vinculacion = si | Buscalibre le compra a Buscalibre: declarar vinculación (no afecta el precio)
+SCOTIABANK / IDEMIA | pago = 4 | Scotiabank no paga las tarjetas de Idemia: declarar sin pago
+SCOTIABANK / IDEMIA | metodo = 2 | Scotiabank - Idemia: método de valoración 2
 MADINOR | forma de pago iva = 2 | Madinor paga el IVA y el IRAE con certificados de crédito (forma de pago 2)
 """
 
@@ -41,7 +48,9 @@ class ReglaCliente:
     linea: int = 0
 
     def aplica(self, borrador):
-        c = self.cliente.upper()
+        c, _, prov = (p.strip() for p in self.cliente.upper().partition("/"))
+        if prov and prov not in (borrador.proveedor or "").upper():
+            return False
         if re.fullmatch(r"\d{6,12}", c):
             return borrador.importador_rut == c
         return c in (borrador.importador or "").upper()
@@ -101,6 +110,15 @@ def evaluar(regla, b):
         if not ok and m.group(1) == "iva" and not _paga_iva_irae(b):
             return "advertencia", detalle + ". El despacho no paga IVA ni IRAE, así que no es error, pero es preferible declararlo así."
         return ok, detalle
+    m = re.fullmatch(r"(m[eé]todo|pago)\s*=\s*(\d+)", cond)
+    if m:
+        campo = "metodo" if m.group(1).startswith("m") else "forma_pago"
+        quiere = int(m.group(2))
+        malos = [it for it in b.items if not getattr(it, campo).isdigit() or int(getattr(it, campo)) != quiere]
+        if not malos:
+            return True, ""
+        nombre = "método" if campo == "metodo" else "F.Pago"
+        return False, "Ítems con otro " + nombre + ": " + ", ".join(f"{it.nro} ({getattr(it, campo) or '?'})" for it in malos[:10])
     m = re.fullmatch(r"vinculaci[oó]n\s*=\s*(s[ií]|no)", cond)
     if m:
         quiere = m.group(1).startswith("s")
