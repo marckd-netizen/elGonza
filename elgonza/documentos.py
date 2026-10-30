@@ -184,6 +184,35 @@ def _ocr_pagina(pagina, datos_imagen, dpi):
     return texto
 
 
+def ocr_profundo(ruta, dpi=400):
+    """Segunda lectura más lenta (más resolución, imagen limpia, bloques sueltos) para buscar un dato puntual."""
+    try:
+        import pymupdf as fitz
+    except ImportError:
+        import fitz
+    import pytesseract
+    from PIL import Image, ImageFilter
+    ruta = Path(ruta)
+    datos = ruta.read_bytes()
+    cache = carpeta_cache() / f"prof-{hashlib.sha1(datos).hexdigest()}.txt"
+    if cache.exists():
+        return cache.read_text(encoding="utf-8")
+    textos = []
+    if ruta.suffix.lower() == ".pdf":
+        imagenes = [Image.open(io.BytesIO(p.get_pixmap(dpi=dpi).tobytes("png"))) for p in fitz.open(stream=datos, filetype="pdf")]
+    else:
+        imagenes = [Image.open(io.BytesIO(datos))]
+    for img in imagenes:
+        img = img.convert("L").filter(ImageFilter.MedianFilter(3))
+        textos.append(pytesseract.image_to_string(img, lang=_idiomas_ocr(), config="--psm 11"))
+    texto = "\n".join(textos)
+    try:
+        cache.write_text(texto, encoding="utf-8")
+    except OSError:
+        pass
+    return texto
+
+
 def _ruidoso(texto):
     """True si la mayoría de las palabras son basura de 1 o 2 letras (escaneo sucio)."""
     palabras = texto.split()

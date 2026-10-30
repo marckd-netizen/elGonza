@@ -11,6 +11,7 @@ import re
 from dataclasses import dataclass
 
 from .borrador import referencias_por_factura
+from .documentos import ocr_profundo
 from .numeros import aparece, coincidencia_codigo, digito_contenedor, fmt, num, num_libre, solo_alnum
 
 USD = "840"
@@ -300,23 +301,41 @@ class Revision:
                 self.agregar(9, "Unidades", "advertencia", f"Ítem {it.nro}: {fmt(it.cant_comercial, 3)} toneladas no coincide con {fmt(it.neto, 3)} kg netos")
 
     def r_09_cantidades_en_factura(self):
-        """En despachos chicos, la cantidad comercial de cada ítem tiene que leerse en su factura."""
+        """En despachos chicos, la cantidad comercial de cada ítem tiene que estar en su factura."""
         b = self.b
         if not b.items or len(b.items) > 5:
             return
         facs = {f.numero: f for f in b.facturas_comerciales}
-        faltan = []
+        errores, dudas = [], []
         for it in b.items:
             refs = referencias_por_factura(it)
-            if len(it.facturas) != 1 or sum(len(v) for v in refs.values()) > 1:
+            if len(it.facturas) != 1 or it.facturas[0] not in facs or sum(len(v) for v in refs.values()) > 1:
                 continue  # si el ítem junta varias líneas, la cantidad es una suma
-            docs = [self._doc_de_factura(facs[n]) for n in it.facturas if n in facs]
-            texto = " ".join(d.texto for d in docs if d)
-            if texto and it.cant_comercial and not aparece(it.cant_comercial, texto, 0):
-                faltan.append(f"ítem {it.nro} ({fmt(it.cant_comercial, 0)} {it.unidad_comercial.split()[-1].lower() if it.unidad_comercial else ''})".replace(" )", ")"))
-        if faltan:
-            self.agregar(9, "Cantidades", "revisar", "No encontré en la factura la cantidad declarada: " + ", ".join(faltan),
-                         "Puede ser el OCR. Confirmar contra la factura.")
+            f = facs[it.facturas[0]]
+            doc = self._doc_de_factura(f)
+            if not doc or not it.cant_comercial or aparece(it.cant_comercial, doc.texto, 0):
+                continue
+            desc = f"ítem {it.nro}: declarado {fmt(it.cant_comercial, 0)}"
+            texto = doc.texto
+            if doc.ocr:
+                try:
+                    texto += "\n" + ocr_profundo(doc.ruta)
+                except Exception:
+                    pass
+                if aparece(it.cant_comercial, texto, 0):
+                    continue
+            # con una sola línea en la factura, cantidad x precio tiene que dar el importe
+            leida = _cantidad_por_precio(texto, f.valor) if f.cant_items == 1 else None
+            if leida:
+                errores.append(f"{desc}, la factura dice {fmt(leida[0], 0)} × {fmt(leida[1])} = {fmt(f.valor)}")
+            elif not doc.ocr:
+                errores.append(desc)
+            else:
+                dudas.append(desc)
+        if errores:
+            self.agregar(9, "Cantidades", "error", "La cantidad declarada no coincide con la factura", "; ".join(errores))
+        if dudas:
+            self.agregar(9, "Cantidades", "revisar", "No pude leer en la factura la cantidad declarada", "; ".join(dudas) + ". Confirmar a ojo.")
 
     def r_10_origen(self):
         declarados = {_pais(it.origen) for it in self.b.items if it.origen}
@@ -685,6 +704,18 @@ def buscar_codigo(codigo, texto):
         return False
     patron = r"(?<![A-Z0-9])" + r"[\s./_-]*".join(map(re.escape, c)) + r"(?![A-Z0-9])"
     return re.search(patron, texto.upper()) is not None
+
+
+def _cantidad_por_precio(texto, importe):
+    """Busca en el texto una cantidad entera y un precio unitario cuyo producto da el importe."""
+    numeros = sorted({x for x in (num_libre(m) for m in re.findall(r"\d[\d.,]*\d|\d", texto)) if x})
+    for q in numeros:
+        if q != int(q) or q < 2 or q >= importe:
+            continue
+        for p in numeros:
+            if p != q and p != 1 and abs(q * p - importe) <= 0.02:
+                return q, p
+    return None
 
 
 def _bruto_neto_kg(texto):
