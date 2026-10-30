@@ -221,9 +221,9 @@ def test_libro_de_clientes():
     b.items = [Item(nro=1, ncm="3305.10", ajuste=5.0), Item(nro=2, ncm="3305.10", ajuste=0.0)]
     res = {(c.regla, c.resultado, c.titulo.split(":")[0]) for c in Revision(b, [], clientes=reglas).ejecutar() if c.regla == 40}
     assert (40, "error", "DECIRAL") in res
-    b = Borrador(importador="MADINOR S.A.", forma_pago_aduana="5 SISTARBANC")
+    b = Borrador(importador="MADINOR S.A.", forma_pago_aduana="5 SISTARBANC", forma_pago_iva="1 IDEM. FORMA PAGO ADUAN")
     assert any(c.resultado == "error" for c in Revision(b, [], clientes=reglas).ejecutar() if c.regla == 40)
-    b = Borrador(importador="MADINOR S.A.", forma_pago_aduana="8 CERTIFICADOS DE CREDITO")
+    b = Borrador(importador="MADINOR S.A.", forma_pago_aduana="5 SISTARBANC", forma_pago_iva="2 DGI")
     assert all(c.resultado == "ok" for c in Revision(b, [], clientes=reglas).ejecutar() if c.regla == 40)
     b = Borrador(importador="DEVOTO HNOS.S.A.", importador_rut="210297450018")
     assert any(c.resultado == "revisar" for c in Revision(b, [], clientes=reglas).ejecutar() if c.regla == 40)

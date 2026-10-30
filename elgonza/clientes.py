@@ -10,6 +10,7 @@ CLIENTE es una parte del nombre del importador o su RUT. Condiciones que entiend
     ajuste = 5                         todos los ítems llevan ese % de ajuste
     forma de pago aduana = 7           código de la forma de pago a la Aduana
     forma de pago aduana contiene CERT texto que tiene que aparecer en la forma de pago
+    forma de pago iva = 2              igual para la forma de pago del IVA (2 = DGI, certificados de crédito)
     recordar                           solo muestra la explicación para tenerla presente
 """
 import os
@@ -20,11 +21,12 @@ from pathlib import Path
 EJEMPLO = """# Libro de clientes de elGonza
 # Una regla por línea:  CLIENTE | condición | explicación
 # CLIENTE puede ser parte del nombre del importador o su RUT.
-# Condiciones: ajuste > 0 · ajuste = N · forma de pago aduana = N · forma de pago aduana contiene TEXTO · recordar
+# Condiciones: ajuste > 0 · ajuste = N · forma de pago aduana = N · forma de pago iva = N
+#              (también «contiene TEXTO» en vez de «= N») · recordar
 # Las líneas que empiezan con # no se leen.
 
 DECIRAL | ajuste > 0 | Deciral siempre tiene ajuste de valor
-MADINOR | forma de pago aduana contiene CERT | Madinor siempre paga con certificados de crédito
+MADINOR | forma de pago iva = 2 | Madinor siempre paga el IVA con certificados de crédito (DGI)
 """
 
 
@@ -87,10 +89,10 @@ def evaluar(regla, b):
             return True, ""
         lista = ", ".join(f"{it.nro} ({it.ajuste:g}%)" for it in malos[:10]) + ("…" if len(malos) > 10 else "")
         return False, f"Ítems sin el ajuste esperado: {lista}"
-    m = re.fullmatch(r"forma de pago aduana\s*(=|contiene)\s*(.+)", cond)
+    m = re.fullmatch(r"forma de pago (aduana|iva)\s*(=|contiene)\s*(.+)", cond)
     if m:
-        actual = b.forma_pago_aduana or ""
-        esperado = m.group(2).strip()
-        ok = actual.split()[0] == esperado if m.group(1) == "=" and actual else esperado.upper() in actual.upper()
+        actual = (b.forma_pago_aduana if m.group(1) == "aduana" else b.forma_pago_iva) or ""
+        esperado = m.group(3).strip()
+        ok = actual.split()[0] == esperado if m.group(2) == "=" and actual else esperado.upper() in actual.upper()
         return ok, f"El borrador dice «{actual or 'sin forma de pago'}»"
     return None, f"No entiendo la condición «{regla.condicion}» (línea {regla.linea} del libro de clientes)"
