@@ -299,6 +299,25 @@ class Revision:
             if uc.startswith("TONEL") and it.neto and not self.cerca(it.cant_comercial * 1000, it.neto, 1, 0.001):
                 self.agregar(9, "Unidades", "advertencia", f"Ítem {it.nro}: {fmt(it.cant_comercial, 3)} toneladas no coincide con {fmt(it.neto, 3)} kg netos")
 
+    def r_09_cantidades_en_factura(self):
+        """En despachos chicos, la cantidad comercial de cada ítem tiene que leerse en su factura."""
+        b = self.b
+        if not b.items or len(b.items) > 5:
+            return
+        facs = {f.numero: f for f in b.facturas_comerciales}
+        faltan = []
+        for it in b.items:
+            refs = referencias_por_factura(it)
+            if len(it.facturas) != 1 or sum(len(v) for v in refs.values()) > 1:
+                continue  # si el ítem junta varias líneas, la cantidad es una suma
+            docs = [self._doc_de_factura(facs[n]) for n in it.facturas if n in facs]
+            texto = " ".join(d.texto for d in docs if d)
+            if texto and it.cant_comercial and not aparece(it.cant_comercial, texto, 0):
+                faltan.append(f"ítem {it.nro} ({fmt(it.cant_comercial, 0)} {it.unidad_comercial.split()[-1].lower() if it.unidad_comercial else ''})".replace(" )", ")"))
+        if faltan:
+            self.agregar(9, "Cantidades", "revisar", "No encontré en la factura la cantidad declarada: " + ", ".join(faltan),
+                         "Puede ser el OCR. Confirmar contra la factura.")
+
     def r_10_origen(self):
         declarados = {_pais(it.origen) for it in self.b.items if it.origen}
         texto = self.textos("packing", "factura")

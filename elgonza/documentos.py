@@ -109,7 +109,7 @@ def _idiomas_ocr():
     return "+".join(pedidos) or "eng"
 
 
-VERSION_TEXTO = 3
+VERSION_TEXTO = 4
 
 
 def extraer_texto(ruta, usar_ocr=True, dpi=300):
@@ -125,7 +125,8 @@ def extraer_texto(ruta, usar_ocr=True, dpi=300):
     if cache.exists():
         try:
             c = json.loads(cache.read_text(encoding="utf-8"))
-            vigente = c.get("ocr") or c.get("ver", 2) >= VERSION_TEXTO  # el texto de PDF es barato de rehacer
+            # el texto de PDF es barato de rehacer; el OCR solo se rehace si salió ruidoso con una versión vieja
+            vigente = c.get("ver", 2) >= VERSION_TEXTO or (c.get("ocr") and not _ruidoso(c.get("texto", "")))
             if vigente and (c.get("ocr") or not usar_ocr or c.get("texto", "").strip()):
                 return c["texto"], c["ocr"]
         except Exception:
@@ -174,7 +175,22 @@ def _ocr_pagina(pagina, datos_imagen, dpi):
     else:
         img = Image.open(io.BytesIO(datos_imagen))
     img = img.convert("L")
-    return pytesseract.image_to_string(img, lang=_idiomas_ocr(), config="--psm 6")
+    texto = pytesseract.image_to_string(img, lang=_idiomas_ocr(), config="--psm 6")
+    if _ruidoso(texto):
+        # escaneo con puntitos: se limpia y se lee por bloques sueltos (sirve para formularios con celdas)
+        from PIL import ImageFilter
+        limpia = img.filter(ImageFilter.MedianFilter(3)).filter(ImageFilter.MedianFilter(3))
+        texto += "\n" + pytesseract.image_to_string(limpia, lang=_idiomas_ocr(), config="--psm 11")
+    return texto
+
+
+def _ruidoso(texto):
+    """True si la mayoría de las palabras son basura de 1 o 2 letras (escaneo sucio)."""
+    palabras = texto.split()
+    if len(palabras) < 30:
+        return False
+    cortas = sum(1 for p in palabras if len(p) <= 2 and not p.isdigit())
+    return cortas / len(palabras) > 0.35
 
 
 EXTENSIONES = {".pdf", ".png", ".jpg", ".jpeg", ".tif", ".tiff"}

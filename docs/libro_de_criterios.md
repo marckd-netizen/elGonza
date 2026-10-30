@@ -58,6 +58,7 @@ Resultados: **error** (probable error con impacto en tributos o validez), **adve
 
 | # | Regla | Programa |
 |---|---|---|
+| 9b | En despachos chicos, la cantidad comercial de cada ítem tiene que estar en su factura. | Sí (aviso) |
 | 28 | Bultos del DUA = bultos del documento de transporte (o la suma por contenedor del BL). | Sí |
 | 29 | Bruto y neto = packing / BL; si el packing trae peso por línea, el neto por ítem sale de ahí. Con muchas facturas, el neto puede ser la suma de los netos de cada una. | Sí |
 | 30 | Convertir libras a kilos al comparar. | Se informa el equivalente |
