@@ -30,9 +30,9 @@ Resultados: **error** (probable error con impacto en tributos o validez), **adve
 | 13 | CIF = FOB + flete + seguro (+ gastos); CIF del cabezal = suma de ítems; VNA = CIF + gastos. | Sí |
 | 14 | Valor DNA = (CIF + gastos) × T/C; con factura no USD, CIF USD = valor × arbitraje. | Sí |
 | 15 | Gastos/Aj del cabezal = suma de los gastos de los ítems. | Sí |
-| 16 | Gastos/Aj incluye todos los gastos que no llevan IVA, salvo el almacenaje. | Aviso para confirmar |
+| 16 | Gastos/Aj incluye todos los gastos que no llevan IVA, salvo el almacenaje. Si la factura de gastos trae «Subtotal no gravado», se compara contra ese importe. | Sí, cuando hay subtotal no gravado; si no, aviso para confirmar |
 | 17 | Flete prorrateado por FOB, solo hasta frontera / puerto de destino. | Sí (prorrateo parejo) |
-| 18 | Sin certificado de seguro: ficto 1%. Con certificado: el premio internacional. | Sí |
+| 18 | Sin certificado de seguro: ficto 1%. Con certificado: el premio internacional. Con CIF/CIP el seguro va dentro del precio y se declara 0. | Sí |
 | 19 | EXW o FCA: el flete cubre desde el punto de entrega. | Sí (busca el flete en sus documentos) |
 | 19b | CPT (y similares con flete incluido): se declara el precio total de la factura como valor, aunque la factura separe el flete y llegue a un destino dentro de Uruguay. No es error. | No se marca |
 
@@ -48,7 +48,7 @@ Resultados: **error** (probable error con impacto en tributos o validez), **adve
 |---|---|---|
 | 21 | Número de BL / guía (MAWB, HAWB) del DUA = el del documento. | Sí |
 | 22 | Buque: el del arribo, aunque el BL nombre otro por transbordo. | «Revisar» si no coincide con el BL |
-| 23 | Contenedor solo en FCL; en LCL se declaran 0. Dígito verificador correcto. | Sí |
+| 23 | Contenedor solo en FCL; en LCL se declaran 0. Dígito verificador correcto. Cada contenedor declarado tiene que figurar en el BL. | Sí |
 | 24 | Precinto: solo la parte numérica. | Sí |
 | 25 | Terrestre: el CRT no se carga en el borrador (se asocia en frontera). | Sí (no se pide) |
 | 26 | Bandera del medio de transporte: viene de LUCIA / manifiesto, no se compara. | No se controla |
@@ -58,8 +58,8 @@ Resultados: **error** (probable error con impacto en tributos o validez), **adve
 
 | # | Regla | Programa |
 |---|---|---|
-| 28 | Bultos del DUA = bultos del documento de transporte. | Sí |
-| 29 | Bruto y neto = packing / BL; si el packing trae peso por línea, el neto por ítem sale de ahí. | Sí |
+| 28 | Bultos del DUA = bultos del documento de transporte (o la suma por contenedor del BL). | Sí |
+| 29 | Bruto y neto = packing / BL; si el packing trae peso por línea, el neto por ítem sale de ahí. Con muchas facturas, el neto puede ser la suma de los netos de cada una. | Sí |
 | 30 | Convertir libras a kilos al comparar. | Se informa el equivalente |
 
 ## Origen y clasificación

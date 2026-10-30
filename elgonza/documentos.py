@@ -17,9 +17,9 @@ TIPOS = {
     "borrador": ["borrador"],
     "flete": ["flete", "freight", "carta de flete"],
     "origen": ["co", "certificado de origen", "origem", "origin"],
-    "seguro": ["seguro", "cese", "insurance", "poliza"],
+    "seguro": ["seguro", "seg", "cese", "insurance", "poliza"],
     "packing": ["pack", "empaque"],
-    "gastos": ["gastos", "thc", "local"],
+    "gastos": ["gastos", "gtos", "thc", "local"],
     "transporte": ["conc", "bl", "awb", "guia", "crt", "mic", "hbl", "mbl", "conocimiento"],
     "factura": ["fact", "fac", "fatura", "inv", "factura", "invoice"],
 }
@@ -109,6 +109,9 @@ def _idiomas_ocr():
     return "+".join(pedidos) or "eng"
 
 
+VERSION_TEXTO = 3
+
+
 def extraer_texto(ruta, usar_ocr=True, dpi=300):
     """Devuelve (texto, fue_ocr). Usa el texto del PDF si lo tiene; si no, OCR por página."""
     try:
@@ -122,7 +125,8 @@ def extraer_texto(ruta, usar_ocr=True, dpi=300):
     if cache.exists():
         try:
             c = json.loads(cache.read_text(encoding="utf-8"))
-            if c.get("ocr") or not usar_ocr or c.get("texto", "").strip():
+            vigente = c.get("ocr") or c.get("ver", 2) >= VERSION_TEXTO  # el texto de PDF es barato de rehacer
+            if vigente and (c.get("ocr") or not usar_ocr or c.get("texto", "").strip()):
                 return c["texto"], c["ocr"]
         except Exception:
             pass
@@ -143,7 +147,7 @@ def extraer_texto(ruta, usar_ocr=True, dpi=300):
         textos.append(t)
     texto = "\n\f\n".join(textos)
     try:
-        cache.write_text(json.dumps({"texto": texto, "ocr": fue_ocr}), encoding="utf-8")
+        cache.write_text(json.dumps({"texto": texto, "ocr": fue_ocr, "ver": VERSION_TEXTO}), encoding="utf-8")
     except OSError:
         pass
     return texto, fue_ocr
@@ -154,7 +158,8 @@ def _texto_con_columnas(datos, nro_pagina):
     try:
         import pdfplumber
         with pdfplumber.open(io.BytesIO(datos)) as pdf:
-            t = pdf.pages[nro_pagina].extract_text(layout=True) or ""
+            # dedupe_chars: algunos PDF imprimen cada letra dos veces para simular negrita ("FFOOBB")
+            t = pdf.pages[nro_pagina].dedupe_chars().extract_text(layout=True) or ""
         return "\n".join(re.sub(r"[ \t]+$", "", l) for l in t.splitlines() if l.strip())
     except Exception:
         return ""

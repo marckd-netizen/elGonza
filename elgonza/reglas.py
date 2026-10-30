@@ -11,7 +11,7 @@ import re
 from dataclasses import dataclass
 
 from .borrador import referencias_por_factura
-from .numeros import aparece, coincidencia_codigo, digito_contenedor, fmt, solo_alnum
+from .numeros import aparece, coincidencia_codigo, digito_contenedor, fmt, num, num_libre, solo_alnum
 
 USD = "840"
 MERCOSUR = {"032", "076", "600", "858"}
@@ -39,7 +39,13 @@ class Revision:
         self.controles.append(Control(regla, tema, resultado, titulo, detalle))
 
     def textos(self, *tipos):
-        return "\n".join(d.texto for d in self.docs if not tipos or d.tipo in tipos)
+        return "\n".join(d.texto for d in self.vigentes() if not tipos or d.tipo in tipos)
+
+    def vigentes(self):
+        """Documentos a usar: si hay un borrador (draft) y la versión final del mismo tipo, se ignora el draft."""
+        es_draft = lambda d: re.search(r"draft|borrador", d.ruta.stem, re.I) is not None
+        finales = {d.tipo for d in self.docs if not es_draft(d)}
+        return [d for d in self.docs if not (es_draft(d) and d.tipo in finales)]
 
     def hay(self, *tipos):
         return any(d.tipo in tipos and d.texto.strip() for d in self.docs)
@@ -69,8 +75,10 @@ class Revision:
             if any(len(n) >= 2 and any(g == n or g.endswith(n) or n.endswith(g) and len(g) >= 3 for g in grupos)
                    for n in nombre if n != self.b.carpeta):
                 puntos += 1
+            if not puntos:
+                continue
             if d.tipo == "factura":
-                puntos += 1.5
+                puntos += 2.5
             elif d.tipo != "packing":
                 puntos -= 0.5
             if puntos >= 2 and puntos > puntos_mejor:
@@ -253,12 +261,22 @@ class Revision:
                              f"Si el documento está en libras serían {fmt(lb, 0)} lb (regla 30).")
             if aparece(b.total_bultos, docs_peso, 0):
                 self.agregar(28, "Bultos", "ok", f"Los {fmt(b.total_bultos, 0)} bultos figuran en transporte/packing")
+            elif b.total_bultos and round(b.total_bultos) in {_suma_bultos_por_contenedor(d.texto) for d in self.vigentes() if d.tipo == "transporte"}:
+                self.agregar(28, "Bultos", "ok", f"Los {fmt(b.total_bultos, 0)} bultos coinciden con la suma por contenedor del BL")
             else:
                 self.agregar(28, "Bultos", "advertencia", f"No encontré {fmt(b.total_bultos, 0)} bultos en el documento de transporte ni en el packing")
         if self.hay("packing"):
             pk = self.textos("packing")
+            docs_neto = [d for d in self.vigentes() if d.tipo in ("packing", "factura")]
+            netos = [n for _, n in filter(None, (_bruto_neto_kg(d.texto) for d in docs_neto))]
             if aparece(b.peso_neto, pk, 3) or aparece(b.peso_neto, pk, 2):
                 self.agregar(29, "Pesos", "ok", f"Peso neto {fmt(b.peso_neto, 3)} coincide con el packing")
+            elif len(netos) > 1 and self.cerca(sum(netos), b.peso_neto, 0.5, 0):
+                self.agregar(29, "Pesos", "ok", f"Peso neto {fmt(b.peso_neto, 3)} coincide con la suma de los netos de {len(netos)} documentos")
+                return
+            elif not re.search(r"\bNET(?:T|TO|O)?\s*(?:WEIGHT|WT|GEW|KG)|\bN\.\s?W\b|NETGEW|NETTOGEW|PESO NETO|PESO L[IÍ]Q", pk.upper()):
+                self.agregar(29, "Pesos", "revisar", "El packing no trae peso neto: confirmar de dónde sale el neto declarado")
+                return
             else:
                 self.agregar(29, "Pesos", "advertencia", f"No encontré el peso neto {fmt(b.peso_neto, 3)} en el packing")
             sin = [it.nro for it in b.items if it.neto and not (aparece(it.neto, pk, 3) or aparece(it.neto, pk, 2))]
@@ -374,6 +392,16 @@ class Revision:
         if any(re.search(r"ALMACENAJE|STORAGE", l) and re.search(r"\d+[.,]\d{2}", l) for l in t.splitlines()):
             self.agregar(16, "Gastos", "revisar", "Hay almacenaje en los documentos de gastos",
                          "El almacenaje no va en Gastos/Aj. Confirmar que no esté sumado.")
+        no_gravado = [num_libre(m) for m in re.findall(r"NO\s+GRAVAD[OA]S?\D{0,15}?(\d[\d.,]*\d)", t)]
+        no_gravado = [x for x in no_gravado if x]
+        if no_gravado:
+            total = round(sum(no_gravado), 2)
+            if self.cerca(total, b.gastos, 0.01, 0):
+                self.agregar(16, "Gastos", "ok", f"Gastos/Aj {fmt(b.gastos)} = subtotal no gravado de la factura de gastos")
+            else:
+                self.agregar(16, "Gastos", "revisar", f"Gastos/Aj {fmt(b.gastos)} USD y el subtotal no gravado de gastos es {fmt(total)}",
+                             f"Diferencia {fmt(b.gastos - total)}. Los gastos que van al valor son los que no llevan IVA (salvo almacenaje).")
+            return
         facs = ", ".join(f"{f.numero} ({fmt(f.valor)})" for f in b.facturas_flete)
         self.agregar(16, "Gastos", "revisar", f"Gastos/Aj de {fmt(b.gastos)} USD: confirmar que no lleven IVA ni sean almacenaje",
                      ("Facturas de flete y gastos del cabezal: " + facs) if facs else "No hay facturas de gastos (FACC) en el cabezal.")
@@ -404,6 +432,9 @@ class Revision:
         ficto = all(f.valor and self.cerca(self.a_usd(f.seguro, f.seguro_moneda or USD) or 0, (self.a_usd(f.valor, f.moneda) or 0) * 0.01, 0.02, 0.002)
                     or (f.seguro_moneda == f.moneda and self.cerca(f.seguro, f.valor * 0.01, 0.02, 0.002)) for f in facs)
         total = sum(f.seguro for f in facs)
+        if not total and all(f.cond_vta in ("CIF", "CIP", "DAP", "DPU", "DDP", "CFR", "CPT") for f in facs):
+            self.agregar(18, "Seguro", "ok", "Seguro 0: va incluido en el precio de la factura por la condición de venta")
+            return
         if ficto:
             if self.hay("seguro"):
                 self.agregar(18, "Seguro", "advertencia", "Se usó seguro ficto 1% pero hay certificado de seguro en la carpeta",
@@ -463,7 +494,7 @@ class Revision:
             self.agregar(20, "Tributos", "ok", "Recargo, IMADUNI, IVA, IVA anticipado, IRAE y tasa consular cierran")
         if b.liquidacion_dna:
             dif = [f"{k}: {fmt(v, 0)} vs DNA {fmt(b.liquidacion_dna[k], 0)}" for k, v in b.autoliquidacion.items()
-                   if k in b.liquidacion_dna and abs(v - b.liquidacion_dna[k]) > 5]
+                   if k in b.liquidacion_dna and abs(v - b.liquidacion_dna[k]) > max(5, abs(v) * 0.00002)]  # tolera el redondeo por ítem
             if dif:
                 self.agregar(20, "Tributos", "revisar", "La autoliquidación difiere de la liquidación DNA", "; ".join(dif))
 
@@ -612,7 +643,8 @@ class Revision:
                              "Confirmar naturaleza de la transacción, método de valoración y forma de pago de esa factura.")
 
     def r_37_reparacion(self):
-        t = (self.textos("factura", "transporte") + " " + " ".join(i.descripcion for i in self.b.items)).upper()
+        # Solo facturas y descripciones: las condiciones impresas de los BL hablan de "repairs" y "warranty"
+        t = (self.textos("factura") + " " + " ".join(i.descripcion for i in self.b.items)).upper()
         if re.search(r"\bREPAIR|\bREPARACI|\bREPARAD|\bWARRANTY|\bGARANT[IÍ]A", t):
             if any(it.subregimen in ("11", "12") for it in self.b.items):
                 self.agregar(37, "Subrégimen", "error", "Los documentos hablan de reparación o garantía y el DUA es una importación definitiva común",
@@ -628,6 +660,26 @@ def buscar_codigo(codigo, texto):
         return False
     patron = r"(?<![A-Z0-9])" + r"[\s./_-]*".join(map(re.escape, c)) + r"(?![A-Z0-9])"
     return re.search(patron, texto.upper()) is not None
+
+
+def _bruto_neto_kg(texto):
+    """Último renglón con dos pesos en kg ('465 kg  419 kg'), que suele ser el total bruto y neto del documento."""
+    pares = re.findall(r"(\d[\d.,]*)\s*KGS?\s+(\d[\d.,]*)\s*KGS?\b", texto.upper())
+    if not pares:
+        return None
+    bruto, neto = (num_libre(x) or 0 for x in pares[-1])
+    return (bruto, neto) if bruto >= neto > 0 else None
+
+
+def _suma_bultos_por_contenedor(texto):
+    """Suma las cantidades del tipo '= 1785 CARTONS' (una por contenedor en los BL de consolidado)."""
+    total = 0
+    for l in texto.upper().splitlines():
+        if "TOTAL" in l:
+            continue
+        for m in re.finditer(r"=\s*(\d[\d.,]*)\s*(?:CARTONS?|CTNS?|PACKAGES?|PKGS?|PALLETS?|BULTOS|CAJAS|BOXES|CASES)\b", l):
+            total += num_libre(m.group(1)) or 0
+    return round(total)
 
 
 def _rangos(nums):
@@ -660,7 +712,7 @@ def _fecha_en_texto(fecha, texto):
         rf"\b0?{d}\s*[./-]\s*0?{m}\s*[./-]\s*(?:{a}|{a % 100:02d})\b",
         rf"\b{a}\s*[./-]\s*0?{m}\s*[./-]\s*0?{d}\b",
         rf"\b0?{m}\s*[./-]\s*0?{d}\s*[./-]\s*(?:{a}|{a % 100:02d})\b",
-        rf"\b0?{d}\s*(?:DE\s+)?(?:{MESES[m - 1]})[A-Z]*\.?\s*(?:DE\s+|,\s*)?(?:{a}|{a % 100:02d})\b",
+        rf"\b0?{d}\s*[-/.]?\s*(?:DE\s+)?(?:{MESES[m - 1]})[A-Z]*\.?\s*(?:DE\s+|,\s*|[-/]\s*)?(?:{a}|{a % 100:02d})\b",
         rf"(?:{MESES[m - 1]})[A-Z]*\.?\s*0?{d}(?:ST|ND|RD|TH)?\s*,?\s*{a}\b",
     ]
     return any(re.search(p, t) for p in patrones)

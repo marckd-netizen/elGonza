@@ -18,6 +18,21 @@ def num(s):
     return -v if neg else v
 
 
+def num_libre(s):
+    """Número de un documento en cualquier formato: '1,149.00', '1.149,00', '1.149' (miles) o '40,09'."""
+    s = (s or "").strip().replace(" ", "")
+    if not re.fullmatch(r"\d[\d.,]*", s):
+        return None
+    sep = [c for c in s if c in ".,"]
+    if not sep:
+        return float(s)
+    ultimo = s.rfind(sep[-1])
+    decimales = len(s) - ultimo - 1
+    if len(set(sep)) == 2 or (len(sep) == 1 and decimales != 3):
+        return float(re.sub(r"[.,]", "", s[:ultimo]) + "." + s[ultimo + 1:])
+    return float(re.sub(r"[.,]", "", s))
+
+
 def fmt(v, dec=2):
     """1234.5 -> '1.234,50'."""
     s = f"{v:,.{dec}f}"

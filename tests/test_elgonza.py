@@ -183,6 +183,8 @@ ESPERADOS = {
     "149186": [(10, "error"), (2, "advertencia"), (29, "revisar")],
     "149385": [(37, "error")],
     "149440": [(31, "ok")],
+    "149445": [(18, "ok"), (31, "ok")],
+    "149275": [(23, "advertencia"), (16, "revisar"), (28, "ok"), (29, "ok")],
 }
 
 
@@ -194,3 +196,16 @@ def test_carpetas_de_ejemplo(carpeta, tmp_path):
     hallados = {(c.regla, c.resultado) for c in controles}
     for esperado in ESPERADOS[carpeta]:
         assert esperado in hallados, f"{carpeta}: falta {esperado}"
+
+
+def test_num_libre():
+    from elgonza.numeros import num_libre
+    assert num_libre("1,149.00") == 1149.0
+    assert num_libre("2.383,70") == 2383.7
+    assert num_libre("1.785") == 1785.0
+    assert num_libre("40,09") == 40.09
+
+
+def test_fecha_con_mes_entre_guiones():
+    from elgonza.reglas import _fecha_en_texto
+    assert _fecha_en_texto((2026, 10, 28), "Invoice Date 28-OCT-2026")

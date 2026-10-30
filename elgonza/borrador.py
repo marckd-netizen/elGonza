@@ -192,8 +192,11 @@ def parsear(texto):
     b.gastos = _busca(r"Gastos/Aj U\$S:\s*(" + NUM + ")", todo, conv=num, defecto=0.0)
     b.vna = _busca(r"VNA U\$S:\s*(" + NUM + ")", todo, conv=num, defecto=0.0)
     b.vna_pesos = _busca(r"Total VNA \$:\s*(" + NUM + ")", todo, conv=num, defecto=0.0)
-    for m in re.finditer(r"Contenedor:\s*(\S+)\s+Precinto:\s*(\S*)\s+Medida:\s*(\d+)", todo):
+    for m in re.finditer(r"Contenedor:\s*(\S+)\s+Precinto:\s*(\S*)\s+Medida:\s*(\d+)((?:\n\s*[A-Z]{4}-\d{6}-\d\s+\S*\s+\d+[ \t]*)*)", todo):
         b.contenedores.append((m.group(1), m.group(2), m.group(3)))
+        # los siguientes contenedores van en líneas sin etiquetas
+        for c in re.finditer(r"([A-Z]{4}-\d{6}-\d)\s+(\S*)\s+(\d+)", m.group(4)):
+            b.contenedores.append(c.groups())
     b.cant_contenedores = _busca(r"Cantidad de Contenedores:\s*(\d+)", todo, conv=int, defecto=0)
     b.observaciones = _busca(r"Observaciones\s*:\s*(.+)", todo, defecto="")
 
@@ -206,7 +209,7 @@ def parsear(texto):
 
     # Facturas del cabezal: línea FACN/FACC + línea siguiente con condición, lugar y cantidad de ítems
     for i, l in enumerate(lineas):
-        m = re.match(r"(FAC[NC])\s+(\S+)\s+(\d{1,2}/\d{2}/\d{4})\s+(\d{1,3}/\s*\d{0,3})\s*(.*)$", l)
+        m = re.match(r"(FAC[NC])\s+(\S+)\s+(\d{1,2}/\d{2}/\d{4})\s+(\d{1,3}/(?:\s?\d{1,3}(?=\s|$))?)\s*(.*)$", l)
         if not m:
             continue
         resto = m.group(5)
@@ -292,7 +295,7 @@ def _referencias(ls):
     partes = []
     for l in ls:
         if partes:
-            if re.match(r"[A-Z][a-zé.]+\s*:", l) or l.startswith(("Autoliq", "Marcas", "Aviso", "Cert")):
+            if (re.match(r"[A-Z][a-zé.]+\s*:", l) and not l.startswith("It:")) or l.startswith(("Autoliq", "Marcas", "Aviso", "Cert")):
                 break
             partes.append(l)
         elif l.startswith("It:"):
