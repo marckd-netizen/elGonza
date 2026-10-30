@@ -1,0 +1,9 @@
+__pycache__/
+*.pyc
+build/
+dist/
+*.spec
+.pytest_cache/
+# documentos de clientes: no se versionan
+ejemplos/
+*.pdf

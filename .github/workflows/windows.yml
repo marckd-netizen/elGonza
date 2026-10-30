@@ -1,0 +1,47 @@
+name: Windows
+
+on:
+  push:
+  workflow_dispatch:
+
+jobs:
+  pruebas:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -r requirements.txt pytest
+      - run: python -m pytest -q tests
+
+  exe:
+    needs: pruebas
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Dependencias
+        run: pip install -r requirements.txt pyinstaller
+      - name: Tesseract OCR con español
+        shell: pwsh
+        run: |
+          choco install tesseract -y --no-progress
+          $t = "C:\Program Files\Tesseract-OCR"
+          Invoke-WebRequest https://github.com/tesseract-ocr/tessdata_fast/raw/main/spa.traineddata -OutFile "$t\tessdata\spa.traineddata"
+      - name: Armar elGonza.exe
+        run: pyinstaller --onefile --windowed --name elGonza elgonza_app.py
+      - name: Paquete
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory paquete | Out-Null
+          Copy-Item dist\elGonza.exe paquete\
+          Copy-Item -Recurse "C:\Program Files\Tesseract-OCR" paquete\Tesseract-OCR
+          Copy-Item README.md paquete\LEEME.md
+          Copy-Item docs\libro_de_criterios.md paquete\
+      - uses: actions/upload-artifact@v4
+        with:
+          name: elGonza-windows
+          path: paquete

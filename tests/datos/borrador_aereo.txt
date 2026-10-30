@@ -1,0 +1,128 @@
+
+   DESPACHANTE DE PRUEBA SRL Borrador D.U.A. - Correlativo: 900001 - Carpeta : 900001 Hoja: 1
+                                                 - Ref.Cli.:        28/10/2026 - 12:15
+  ------------------------------------------------------------------------------------------------------------------------------------
+  Importador.: 4 R.U.T. 219999990011 IMPORTADORA EJEMPLO S.A. Calle Falsa 123 Aduana: 2 CARRASCO
+  Facturar a.:         IMPORTADORA EJEMPLO S.A. Calle Falsa 123
+  Declarante : 210000000019 DESPACHANTE DE PRUEBA SRL 0723 Régimen: 10 IMPORTACION DEFINITIVA
+                                                        F.Despacho: 00 COMUN
+  Proveedor : 1 FABRIC PROVEEDOR EJEMPLO GMBH BEISPIELSTR 1 Fecha: 28/10/2026
+  Vinculación: No                                         Nro.DUA:
+                                                        Tipo Import: N - Normal
+                                                     Canal Automático:
+  Banco:            Cant.Fac: 1 Tot.Fac: 4.179,50 Moneda: 902 EURO Arb: 1,113400 T/C: 40,2100
+  Nat.Transac: 10 COMPRA VENTA EN FIRME (VER NOTA (B)) Cond.Vta: FCA LIBRE TRANSPORTISTA
+  +----------------------------------------------------------------------------------------------------------------------------------+
+  | Factura       Fecha Emision/Origen Valor    Gastos       Flete     Seguro
+  |            Nro.Doc.Gral. C.Vta. Real Lugar Cond. Vta.     Items           |
+  +----------------------------------------------------------------------------------------------------------------------------------+
+  FACN 612       21/09/2026 276/276 ALEMA 4.179,50 902 0,00 000 282,00 840 41,79 902
+               891100000001 FCA FCA BERLIN                  1
+  FACC 1234567890 26/10/2026 858/   282,00 840
+               891100000002 XXX  MONTEVIDEO
+  ------------------------------------------------------------------------------------------------------------------------------------
+
+  Med.Transp: 4 VIA AEREA País : 032 ARGENTINA
+  Nombre Transp: DHL                      Depósito Destino : -
+  Adu.Ingreso: 02 CARRASCO Lugar Verificación: 2089 TCU S.A. CARRASC Adu. Des:
+  Lugar Verificación Terrestre: 0000
+  Total Bultos:  1,000    Total Peso Bruto: 4,500 Total Peso Neto: 4,200
+  Total a Garantizar: 0,00 Nro.Garantía: 0 Total de Unidades: 1,000
+  Totales: CIF U$S: 4.981,99 Gastos/Aj U$S: 0,00 VNA U$S: 4.981,99 - Total VNA $: 200.325,82
+  Aviso: Requiere Registro del Importador DINAMA ENVASES
+
+  Aviso: Requiere Registro del Importador en Ministerio de Ambiente RESIDUOS ELECTRONICOS
+  Cantidad de Contenedores: 0
+  ------------------------------------------------------------------------------------------------------------------------------------
+
+   AUTOLIQUIDACION: IMADUNI :$ 0,00  I.V.A.Importación:$ 44.072,00 Contribuyente IVA: SI
+               Recargo :$      0,00  I.V.A.Anticipado :$ 20.033,00 Acepta Diferencia: P
+               Fondo Lechero :$ 0,00 Cert. Derivados :$ 0,00
+               T.S.A.  :$    400,00  Cert.Notariales :$ 0,00
+               Extraordinario:$ 1.930,00 Anticipo IMESI :$ 0,00
+               Comisión BROU :$ 0,00 LATU (Dto.338/82):$ 0,00
+               Guía Tránsito :$ 380,00 Tasa Consular :$ 10.016,00
+               Anticipo IRAE :$ 0,00 Fdo.Ind. Period. :$ 0,00
+               Certific. VUCE:$ 239,00 Timbre Electron. :$ 270,00
+               Der.Anti.Dump :$ 0,00 Fondo Suinos :$  0,00
+               Fondo Aves :$   0,00  Fondo Huevos :$  0,00
+               Tasa Escáner :$ 565,00
+                                                ------------------
+                                     Total a Pagar :$ 77.905,00
+  Forma Pago Aduana: 5 SISTARBANC - Banco Swift: XXXXUYMM BANCO EJEMPLO Forma Pago IVA: 1 IDEM. FORMA PAGO ADUAN
+  Copias XEROX adicionales: 0
+  Observaciones : HAWB 1234567890
+  Cert: AURI Poder o Nro: 219999990011-20171120 It: RADE: 891100000003 Vto:
+  ------------------------------------------------------------------------------------------------------------------------------------
+  |Item N.C.M. Ap. MNNT Exon Acdo Base Rubro Neg. BULTOS Cant.Bultos Kg.Netos Kg.Brutos |
+  ------------------------------------------------------------------------------------------------------------------------------------
+   1  8525.89.29.00 0000 3501       PCS PIEZAS/PIECES 1,000     4,200      4,500
+  Factura: 612
+  Doc.Carga: 32 DECLARACION ENTRADA A DEP
+  STOCK -> Numero: 6000000001 Año: 2026 Deposito Salida: 2089 TCU S.A. CA Bultos:
+  Subrégimen: 12 IMPORTACION DEFINITIVA CON DESPACHO DESDE DEPOSITO Cant.Análisis:
+  Origen: 276 ALEMANIA Procedencia: 276 ALEMANIA Adquisición: 276 ALEMANIA
+  Vol. Físico: 011 NUMERO 1,000 Cant. Comercial: 002 UNIDAD 1,000
+
+  CIF U$S: 4.981,99 Gtos U$S: 0,00 Valor DNA $: 200.325,81 Ajuste: 0,000 % Valor DNA Aj.$: 200.325,82
+  Método Valor: 01 VALOR DE TRANSACCION, ART. 1 DEL ACUERDO DE VALOR DE F.Pago: 3 PAGO EFECTUADO CON POSTERIORIDAD Dias: 30 %
+   DESPACHANTE DE PRUEBA SRL Borrador D.U.A. - Correlativo: 900001 - Carpeta : 900001 Hoja: 2
+                                                 - Ref.Cli.:        28/10/2026 - 12:15
+  ------------------------------------------------------------------------------------------------------------------------------------
+
+    Descripción: CAMARA PARA LINEA DE ENVASADO EN FRIGORIFICO.-
+            It:1.-
+  Arancel...: APARATOS EMISORES DE RADIODIFUSION O TELEVISION, INCLUSO CON APARATO RECEPTOR O DE GRABACION O REPRODUCCION DE SONIDO IN
+         CORPORADO; CAMARAS DE TELEVISION, CAMARAS DIGITALES Y VIDEOCAMARAS. CAMARAS DE TELEVISIO
+         N, CAMARAS DIGITALES Y VIDEOCAMARAS:    LAS DEMAS                CAMARAS
+         DIGITALES Y VIDEOCAMARAS LAS DEMAS
+  Marcas: IMPORTADORA EJEMPLO S/N      Estado: 27 USADO RECONSTRUIDO
+
+  Autoliq.--> Recargo: 0,00% IMADUNI: 0,00% IVA: 22,00% Ant. IVA: 10,00% IMESI: 0,000% A.IRAE: 0,00% LATU: 0,000%
+         T.Cons.: 5,00% Der.AntiDump.: 0,0000 % F.Suino U$S: 0,00 F.Ave U$S .: 0,00 F.Huevo U$S: 0,00
+  Aviso: Partida Requiere DINAMA ENVASES
+
+  Aviso: Partida Requiere Requiere Ministerio de Ambiente RESIDUOS ELECTRONICOS
+
+  Cert: 0403 Declara Nro: DJ900001 It: RADE: 891100000004 Vto:
+  Cert: CONC Conocim Nro: 1234567890 It: RADE: 891100000005 Vto:
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
