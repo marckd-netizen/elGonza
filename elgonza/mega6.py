@@ -104,7 +104,25 @@ def leer_indice(datos):
     return docs
 
 
-def indice(raiz=None):
+def _leer(ruta, bloque=8 << 20):
+    """Lee el archivo entero en bloques. Si Mega6 tiene trabado un tramo (registro en uso), se saltea ese tramo."""
+    partes = []
+    with open(ruta, "rb") as f:
+        while True:
+            pos = f.tell()
+            try:
+                datos = f.read(bloque)
+            except OSError:
+                f.seek(pos + bloque)
+                partes.append(b"\0")
+                continue
+            if not datos:
+                break
+            partes.append(datos)
+    return b"".join(partes)
+
+
+def indice(raiz=None, avisar=None):
     """{carpeta: [DocMega6]} de toda la base, con caché mientras los archivos de Mega6 no cambien."""
     from .documentos import carpeta_cache
     raiz = Path(raiz) if raiz else raiz_mega6()
@@ -121,9 +139,11 @@ def indice(raiz=None):
     except (OSError, ValueError, KeyError, TypeError):
         pass
     if docs is None:
+        if avisar:
+            avisar("Armando el índice de Mega6 (solo la primera vez o cuando Mega6 cambia; puede tardar un minuto)…")
         todos = {}
         for a in archivos:
-            for rade, doc in leer_indice(a.read_bytes()).items():
+            for rade, doc in leer_indice(_leer(a)).items():
                 todos.setdefault(rade, doc)
         docs = list(todos.values())
         try:
@@ -148,14 +168,14 @@ def ruta_imagen(raiz, imagen):
     return None
 
 
-def documentos_de_carpeta(carpeta, raiz=None):
+def documentos_de_carpeta(carpeta, raiz=None, avisar=None):
     """[(DocMega6, ruta de la imagen)] de la carpeta, sin los que no sirven para la revisión."""
     raiz = Path(raiz) if raiz else raiz_mega6()
     if not raiz:
         return []
     carpeta = str(carpeta).strip().zfill(6)
     res = []
-    for d in sorted(indice(raiz).get(carpeta, []), key=lambda d: d.imagen):
+    for d in sorted(indice(raiz, avisar).get(carpeta, []), key=lambda d: d.imagen):
         if d.codigo in OMITIR:
             continue
         ruta = ruta_imagen(raiz, d.imagen)

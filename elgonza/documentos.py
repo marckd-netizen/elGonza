@@ -247,8 +247,10 @@ def cargar_carpeta(carpeta, usar_ocr=True, avisar=None, mega6=None):
     if mega6:
         from .mega6 import documentos_de_carpeta
         from .mega6 import FACTURA_ES_FLETE
+        if avisar:
+            avisar(f"Buscando la carpeta {mega6} en Mega6…")
         lista = [(r, d.tipo, f"{d.codigo} {d.numero} (RADE {d.rade})", d.codigo in FACTURA_ES_FLETE)
-                 for d, r in documentos_de_carpeta(mega6)]
+                 for d, r in documentos_de_carpeta(mega6, avisar=avisar)]
         if avisar:
             avisar(f"Mega6: {len(lista)} documentos de la carpeta {mega6}")
     else:
