@@ -9,7 +9,7 @@ from pathlib import Path
 from . import __version__
 from .borrador import extraer_texto_pdf, parsear
 from .documentos import EXTENSIONES, cargar_carpeta
-from .mega6 import raiz_mega6
+from .mega6 import borrador_de_carpeta, raiz_mega6, ultimo_borrador
 from .informe import a_json, generar
 from .reglas import Revision
 
@@ -76,8 +76,14 @@ def main(argv=None):
     ap.add_argument("--sin-ocr", action="store_true", help="No usar OCR en documentos escaneados")
     ap.add_argument("--no-abrir", action="store_true", help="No abrir el informe en el navegador")
     ap.add_argument("--mega6", action="store_true", help="Tomar los documentos de Mega6 aunque la carpeta tenga archivos")
+    ap.add_argument("--carpeta", dest="nro", help="Número de carpeta: toma el borrador que generó Mega6 (respaldo\\Borrador<nro>.pdf) y sus documentos")
     ap.add_argument("--version", action="version", version=__version__)
     args = ap.parse_args(argv)
+    if args.nro:
+        args.carpeta = borrador_de_carpeta(args.nro)
+        if not args.carpeta:
+            print(f"No encontré el borrador de la carpeta {args.nro} en Mega6 (respaldo\\Borrador{args.nro}.pdf)")
+            return 1
     if not args.carpeta:
         return ventana()
     carpetas = [Path(args.carpeta)] if Path(args.carpeta).is_file() else carpetas_a_revisar(args.carpeta)
@@ -158,6 +164,25 @@ def ventana():
         boton.configure(state="disabled")
         threading.Thread(target=trabajar, args=(archivo,), daemon=True).start()
 
+    def carpeta_mega6():
+        from tkinter import simpledialog
+        if raiz_mega6() is None:
+            escribir("No encontré la base de Mega6 (Permiso6).")
+            return
+        ultimo = ultimo_borrador()
+        sugerido = ultimo.stem.replace("Borrador", "") if ultimo else ""
+        nro = simpledialog.askstring("Carpeta de Mega6", "Número de carpeta (el borrador tiene que estar generado en Mega6):",
+                                     initialvalue=sugerido, parent=raiz)
+        if not nro:
+            return
+        archivo = borrador_de_carpeta(nro.strip())
+        if not archivo:
+            escribir(f"No encontré el borrador de la carpeta {nro.strip()}: generalo en Mega6 y volvé a probar.")
+            return
+        informes.clear()
+        boton.configure(state="disabled")
+        threading.Thread(target=trabajar, args=(str(archivo),), daemon=True).start()
+
     def abrir_libro():
         from .clientes import cargar, ruta_libro
         cargar()  # lo crea con ejemplos si no existe
@@ -168,8 +193,9 @@ def ventana():
     botones.pack(anchor="w", pady=8, fill="x")
     boton = tk.Button(botones, text="Elegir carpeta y revisar…", command=elegir, padx=10, pady=4)
     boton.pack(side="left")
-    tk.Button(botones, text="Borrador + Mega6…", command=elegir_borrador, padx=10, pady=4).pack(side="left", padx=8)
-    tk.Button(botones, text="Libro de clientes…", command=abrir_libro, padx=10, pady=4).pack(side="left")
+    tk.Button(botones, text="Carpeta de Mega6…", command=carpeta_mega6, padx=10, pady=4).pack(side="left", padx=8)
+    tk.Button(botones, text="Borrador + Mega6…", command=elegir_borrador, padx=10, pady=4).pack(side="left")
+    tk.Button(botones, text="Libro de clientes…", command=abrir_libro, padx=10, pady=4).pack(side="left", padx=8)
     log.pack(fill="both", expand=True)
     raiz.mainloop()
     return 0

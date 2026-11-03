@@ -162,3 +162,22 @@ def documentos_de_carpeta(carpeta, raiz=None):
         if ruta:
             res.append((d, ruta))
     return res
+
+
+def borrador_de_carpeta(carpeta, raiz=None):
+    """El PDF que Mega6 deja al generar el borrador: <Permiso6>\\respaldo\\Borrador149461.pdf."""
+    raiz = Path(raiz) if raiz else raiz_mega6()
+    if not raiz:
+        return None
+    p = raiz / "respaldo" / f"Borrador{str(carpeta).strip()}.pdf"
+    return p if p.is_file() else None
+
+
+def ultimo_borrador(raiz=None):
+    """El borrador generado más recientemente en Mega6, o None."""
+    raiz = Path(raiz) if raiz else raiz_mega6()
+    carpeta = raiz / "respaldo" if raiz else None
+    if not carpeta or not carpeta.is_dir():
+        return None
+    pdfs = [p for p in carpeta.glob("Borrador*.pdf") if p.is_file()]
+    return max(pdfs, key=lambda p: p.stat().st_mtime, default=None)

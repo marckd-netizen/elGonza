@@ -20,6 +20,10 @@ El tipo de los demás documentos se deduce del nombre (`fact`, `inv`, `flete`, `
 
 ## Documentos desde Mega6
 
+Con **Carpeta de Mega6…** alcanza con el número de carpeta: elGonza toma el borrador que Mega6 deja al
+generarlo (`Permiso6\respaldo\Borrador149461.pdf`, propone el último generado) y los documentos de la carpeta.
+Desde la línea de comandos: `elgonza --carpeta 149461`.
+
 Con **Borrador + Mega6…** se elige solo el PDF del borrador y elGonza trae los documentos RADE de esa carpeta
 desde Mega6 (facturas, conocimiento, packing, flete, seguro, certificados), sin copiarlos a mano. También pasa
 si la carpeta elegida tiene solo el borrador. Desde la línea de comandos: `elgonza Borrador145475.pdf` o

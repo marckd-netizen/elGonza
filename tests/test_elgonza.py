@@ -288,3 +288,16 @@ def test_tiff_de_varias_paginas(tmp_path):
     ruta = tmp_path / "M00000001.tif"
     hojas[0].save(ruta, save_all=True, append_images=hojas[1:])
     assert len(_paginas_imagen(ruta.read_bytes())) == 3
+
+
+def test_borrador_de_mega6(tmp_path):
+    import os
+    from elgonza import mega6
+    (tmp_path / "respaldo").mkdir()
+    viejo, nuevo = tmp_path / "respaldo" / "Borrador149460.pdf", tmp_path / "respaldo" / "Borrador149461.pdf"
+    viejo.write_bytes(b"%PDF")
+    nuevo.write_bytes(b"%PDF")
+    os.utime(viejo, (1, 1))
+    assert mega6.borrador_de_carpeta("149461", tmp_path) == nuevo
+    assert mega6.borrador_de_carpeta("1", tmp_path) is None
+    assert mega6.ultimo_borrador(tmp_path) == nuevo
