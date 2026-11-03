@@ -115,8 +115,10 @@ class Revision:
                          f"Busqué el RUT {rut} y el nombre {self.b.importador}. Confirmar que las facturas estén a nombre del importador.")
 
     def r_02_incoterm(self):
+        # Cada factura trae la condición real y la de la factura (pueden diferir: aéreo FCA real, factura FOB).
+        # El cabezal lleva la de la factura.
         for f in self.b.facturas_comerciales:
-            if f.cond_vta and self.b.cond_vta and f.cond_vta != self.b.cond_vta:
+            if f.cond_vta and self.b.cond_vta and self.b.cond_vta not in (f.cond_vta, f.cond_factura):
                 self.agregar(2, "Incoterm", "error", f"Factura {f.numero}: condición {f.cond_vta} distinta del cabezal ({self.b.cond_vta})")
         for f in self.b.facturas_comerciales:
             doc = self._doc_de_factura(f)
@@ -127,8 +129,9 @@ class Revision:
             en_doc = [i for i in INCOTERMS if f" {i} " in t]
             if not en_doc:
                 continue
-            if f.cond_vta in en_doc:
-                self.agregar(2, "Incoterm", "ok", f"Factura {f.numero}: Incoterm {f.cond_vta} coincide")
+            if f.cond_vta in en_doc or f.cond_factura in en_doc:
+                cond = f.cond_vta if f.cond_vta in en_doc else f"{f.cond_factura} (real {f.cond_vta})"
+                self.agregar(2, "Incoterm", "ok", f"Factura {f.numero}: Incoterm {cond} coincide")
             else:
                 self.agregar(2, "Incoterm", "advertencia", f"Factura {f.numero}: declarada {f.cond_vta}, el documento dice {', '.join(en_doc)}",
                              f"Documento: {doc.nombre}. Si es EXW o FCA, el flete tiene que cubrir desde el punto de entrega (regla 19).")
@@ -146,9 +149,13 @@ class Revision:
                 self.agregar(3, "Frontera", "ok", f"La aduana de ingreso ({nombre}) figura en el documento de transporte o flete")
 
     def r_04_subregimen(self):
-        a = [it.nro for it in self.b.items if it.doc_carga == "32" and it.subregimen not in ("12", "M1", "M2")]
+        # 1C: libros desde depósito
+        a = [it.nro for it in self.b.items if it.doc_carga == "32" and it.subregimen not in ("12", "1C", "M1", "M2")]
         if a:
             self.agregar(4, "Subrégimen", "advertencia", "Mercadería en depósito (Doc.Carga 32) sin subrégimen 12", "Ítems " + _rangos(a))
+        a = [it.nro for it in self.b.items if it.doc_carga == "32" and it.subregimen == "12" and it.ncm.startswith("49")]
+        if a:
+            self.agregar(4, "Subrégimen", "revisar", "Libros desde depósito con subrégimen 12", "Ítems " + _rangos(a) + ". Con libros va el subrégimen 1C.")
         a = [it.nro for it in self.b.items if it.doc_carga == "00" and it.subregimen == "12"]
         if a:
             self.agregar(4, "Subrégimen", "revisar", "Subrégimen 12 (desde depósito) con Doc.Carga 00", "Ítems " + _rangos(a) + ". Confirmar si corresponde declarar la entrada a depósito.")
@@ -258,6 +265,8 @@ class Revision:
         if docs_peso.strip():
             if aparece(b.peso_bruto, docs_peso, 3) or aparece(b.peso_bruto, docs_peso, 2) or aparece(round(b.peso_bruto), docs_peso, 0):
                 self.agregar(8, "Pesos", "ok", f"Peso bruto {fmt(b.peso_bruto, 3)} encontrado en transporte/packing")
+            elif _suma_entre_documentos(b.peso_bruto, [d.texto for d in self.vigentes() if d.tipo == "transporte"]):
+                self.agregar(8, "Pesos", "ok", f"Peso bruto {fmt(b.peso_bruto, 3)} = suma de los documentos de transporte")
             else:
                 lb = b.peso_bruto / 0.45359237
                 self.agregar(8, "Pesos", "advertencia", f"No encontré el peso bruto {fmt(b.peso_bruto, 3)} kg en los documentos",
@@ -748,6 +757,29 @@ def _bruto_neto_kg(texto):
         return None
     bruto, neto = (num_libre(x) or 0 for x in pares[-1])
     return (bruto, neto) if bruto >= neto > 0 else None
+
+
+def _suma_entre_documentos(total, textos, tol=0.01):
+    """True si sumando un número de cada documento (2 o más, p. ej. dos conocimientos) se llega al total."""
+    if len(textos) < 2 or not total:
+        return False
+    sumas = {0}
+    for t in textos:
+        nums = set()
+        # solo números cerca de una palabra de peso, para no armar el total con cualquier cifra
+        cerca_de_peso = " ".join(m.group(0) for m in re.finditer(
+            r"(?is)(?:GROSS|BRUTO|WEIGHT|PESO|\bKGS?\b|\bK\b).{0,60}|.{0,25}(?:\bKGS?\b|\bK\b)", t))
+        for x in re.findall(r"\d[\d.,]*\d|\d", cerca_de_peso):
+            nums.add(round(num_libre(x) * 100))
+            if re.fullmatch(r"\d{1,3}[.,]\d{3}", x):   # 70.400 puede ser 70,4 kg o 70400
+                nums.add(round(float(x.replace(",", ".")) * 100))
+        nums = {n for n in nums if 0 < n < total * 100}
+        if not nums:
+            return False
+        sumas = {s + n for s in sumas for n in nums if s + n <= total * 100 + 1}
+        if len(sumas) > 200000:
+            return False
+    return any(abs(s - total * 100) <= tol * 100 for s in sumas)
 
 
 def _suma_bultos_por_contenedor(texto):

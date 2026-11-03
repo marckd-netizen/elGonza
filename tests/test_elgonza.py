@@ -184,7 +184,7 @@ ESPERADOS = {
     "149385": [(37, "error")],
     "149440": [(31, "ok")],
     "149445": [(18, "ok"), (31, "ok"), (13, "revisar")],
-    "149446": [(9, "error"), (2, "error")],
+    "149446": [(9, "error"), (2, "ok")],
     "149275": [(23, "advertencia"), (16, "revisar"), (28, "ok"), (29, "ok")],
 }
 
@@ -301,3 +301,24 @@ def test_borrador_de_mega6(tmp_path):
     assert mega6.borrador_de_carpeta("149461", tmp_path) == nuevo
     assert mega6.borrador_de_carpeta("1", tmp_path) is None
     assert mega6.ultimo_borrador(tmp_path) == nuevo
+
+
+def test_condicion_real_y_de_factura():
+    from elgonza.borrador import Borrador, Factura, Item
+    b = Borrador(cond_vta="FOB")
+    f = Factura("FACN", "102789776", "29/07/2025", valor=100.0, cond_vta="FCA", cond_factura="FOB")
+    b.facturas = [f]
+    doc = Documento(ruta=Path("factura 102789776.pdf"), tipo="factura", texto="Invoice 102789776 Incoterm FOB Barcelona")
+    res = [(c.regla, c.resultado) for c in Revision(b, [doc], clientes=[]).ejecutar()]
+    assert (2, "error") not in res and (2, "advertencia") not in res and (2, "ok") in res
+    b.items = [Item(nro=1, ncm="4901.99.00.00", doc_carga="32", subregimen="1C")]
+    assert not any(c.regla == 4 for c in Revision(b, [], clientes=[]).ejecutar())
+    b.items[0].subregimen = "12"
+    assert any(c.regla == 4 and c.resultado == "revisar" for c in Revision(b, [], clientes=[]).ejecutar())
+
+
+def test_bruto_suma_de_dos_conocimientos():
+    from elgonza.reglas import _suma_entre_documentos
+    assert _suma_entre_documentos(140.8, ["AWB 123 Gross weight 70.400 K pieces 2", "AWB 456 Gross 70,4 kg 3 pcs"])
+    assert not _suma_entre_documentos(140.8, ["AWB 123 Gross weight 70.400 K"])
+    assert not _suma_entre_documentos(140.8, ["Gross 50.0", "Gross 60.0"])

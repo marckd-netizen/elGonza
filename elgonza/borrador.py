@@ -21,7 +21,8 @@ class Factura:
     flete_moneda: str = ""
     seguro: float = 0.0
     seguro_moneda: str = ""
-    cond_vta: str = ""
+    cond_vta: str = ""      # condición real (C.Vta. Real)
+    cond_factura: str = ""  # condición que dice la factura, si se declaró distinta (Cond. Vta.)
     lugar: str = ""
     cant_items: int = 0
 
@@ -232,11 +233,12 @@ def parsear(texto):
             v = re.search(NUM, resto)
             f.valor = num(v.group(0)) if v else 0.0
         sig = lineas[i + 1] if i + 1 < len(lineas) else ""
-        m2 = re.match(r"(?:\d{6,}\s+)?([A-Z]{3})\s+(?:[A-Z]{3}\s+)?(.+?)(?:\s+(\d+))?$", sig)
+        m2 = re.match(r"(?:\d{6,}\s+)?([A-Z]{3})\s+(?:([A-Z]{3})\s+)?(.+?)(?:\s+(\d+))?$", sig)
         if m2:
             f.cond_vta = m2.group(1)
-            f.lugar = m2.group(2).strip()
-            f.cant_items = int(m2.group(3)) if m2.group(3) else 0
+            f.cond_factura = m2.group(2) or ""
+            f.lugar = m2.group(3).strip()
+            f.cant_items = int(m2.group(4)) if m2.group(4) else 0
         b.facturas.append(f)
 
     # Certificados de cabezal (antes del primer ítem)
