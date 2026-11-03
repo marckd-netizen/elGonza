@@ -322,3 +322,13 @@ def test_bruto_suma_de_dos_conocimientos():
     assert _suma_entre_documentos(140.8, ["AWB 123 Gross weight 70.400 K pieces 2", "AWB 456 Gross 70,4 kg 3 pcs"])
     assert not _suma_entre_documentos(140.8, ["AWB 123 Gross weight 70.400 K"])
     assert not _suma_entre_documentos(140.8, ["Gross 50.0", "Gross 60.0"])
+
+
+def test_tot_fac_con_flete():
+    from elgonza.borrador import Borrador, Factura
+    b = Borrador(tot_fac=1150.0, cond_vta="DAP")
+    b.facturas = [Factura("FACN", "522648", "01/11/2026", valor=1000.0, flete=150.0, cond_vta="FCA", cond_factura="DAP")]
+    res = [(c.regla, c.resultado) for c in Revision(b, [], clientes=[]).ejecutar()]
+    assert (12, "ok") in res and (12, "error") not in res and (2, "error") not in res
+    b.tot_fac = 1300.0
+    assert (12, "error") in [(c.regla, c.resultado) for c in Revision(b, [], clientes=[]).ejecutar()]

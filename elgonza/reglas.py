@@ -178,9 +178,15 @@ class Revision:
     def r_06_facturas(self):
         b = self.b
         tot = sum(f.valor for f in b.facturas_comerciales)
+        # el Tot.Fac puede incluir el flete (de las facturas comerciales o de las de flete)
+        con_flete = (tot + sum(f.flete for f in b.facturas_comerciales), tot + sum(f.valor for f in b.facturas_flete))
         if b.facturas_comerciales and not self.cerca(tot, b.tot_fac, 0.02, 0):
-            self.agregar(12, "Valores", "error", "La suma de las facturas no da el Tot.Fac del cabezal",
-                         f"Suma {fmt(tot)}, cabezal {fmt(b.tot_fac)}")
+            if any(self.cerca(t, b.tot_fac, 0.02, 0) for t in con_flete):
+                self.agregar(12, "Valores", "ok", "El Tot.Fac del cabezal es la suma de las facturas más el flete",
+                             f"Facturas {fmt(tot)}, cabezal {fmt(b.tot_fac)}")
+            else:
+                self.agregar(12, "Valores", "error", "La suma de las facturas no da el Tot.Fac del cabezal",
+                             f"Suma {fmt(tot)}, cabezal {fmt(b.tot_fac)}")
         if b.cant_fac and b.cant_fac != len(b.facturas_comerciales):
             self.agregar(6, "Facturas", "advertencia", f"Cant.Fac dice {b.cant_fac} y hay {len(b.facturas_comerciales)} facturas comerciales")
         # números de ítem de cada factura asignados una sola vez

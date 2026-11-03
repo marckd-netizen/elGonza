@@ -26,7 +26,7 @@ Resultados: **error** (probable error con impacto en tributos o validez), **adve
 
 | # | Regla | Programa |
 |---|---|---|
-| 12 | La suma de las facturas da el Tot.Fac del cabezal. | Sí |
+| 12 | La suma de las facturas da el Tot.Fac del cabezal (o la suma más el flete, cuando la factura lo incluye). | Sí |
 | 13 | CIF = FOB + flete + seguro (+ gastos); CIF del cabezal = suma de ítems; VNA = CIF + gastos. | Sí |
 | 14 | Valor DNA = (CIF + gastos) × T/C; con factura no USD, CIF USD = valor × arbitraje. | Sí |
 | 15 | Gastos/Aj del cabezal = suma de los gastos de los ítems. | Sí |
