@@ -37,7 +37,7 @@ def revisar_carpeta(carpeta, salida=None, usar_ocr=True, avisar=print, mega6=Non
     avisar(f"Leyendo {ruta_borrador.name}…")
     b = parsear(extraer_texto_pdf(ruta_borrador))
     if not b.carpeta:
-        b.carpeta = carpeta.name
+        b.carpeta = "".join(c for c in ruta_borrador.stem if c.isdigit()) or carpeta.name
     if mega6 is None:
         otros = [p for p in carpeta.iterdir() if p.is_file() and p.suffix.lower() in EXTENSIONES and p != ruta_borrador]
         mega6 = not otros and raiz_mega6() is not None

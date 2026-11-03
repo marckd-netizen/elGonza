@@ -238,8 +238,7 @@ def cargar_carpeta(carpeta, usar_ocr=True, avisar=None, mega6=None):
     mega6: número de carpeta para traer sus documentos de Mega6 en vez de los archivos de la carpeta.
     """
     carpeta = Path(carpeta)
-    archivos = sorted(p for p in carpeta.iterdir() if p.is_file() and p.suffix.lower() in EXTENSIONES)
-    borrador = next((p for p in archivos if tipo_por_nombre(p.name) == "borrador"), None)
+    borrador = None
     if usar_ocr:
         usar_ocr = configurar_tesseract()
         if not usar_ocr and avisar:
@@ -254,6 +253,9 @@ def cargar_carpeta(carpeta, usar_ocr=True, avisar=None, mega6=None):
         if avisar:
             avisar(f"Mega6: {len(lista)} documentos de la carpeta {mega6}")
     else:
+        # con Mega6 no se lista la carpeta: el borrador puede estar en Permiso6\respaldo, que tiene miles de archivos
+        archivos = sorted(p for p in carpeta.iterdir() if p.is_file() and p.suffix.lower() in EXTENSIONES)
+        borrador = next((p for p in archivos if tipo_por_nombre(p.name) == "borrador"), None)
         lista = [(p, tipo_por_nombre(p.name), p.name, False) for p in archivos if p != borrador]
     docs = []
     for p, tipo, nombre, es_flete in lista:

@@ -199,5 +199,8 @@ def ultimo_borrador(raiz=None):
     carpeta = raiz / "respaldo" if raiz else None
     if not carpeta or not carpeta.is_dir():
         return None
-    pdfs = [p for p in carpeta.glob("Borrador*.pdf") if p.is_file()]
-    return max(pdfs, key=lambda p: p.stat().st_mtime, default=None)
+    # scandir trae la fecha sin otra consulta por archivo (respaldo tiene miles y está en la red)
+    with os.scandir(carpeta) as it:
+        pdfs = [(e.stat().st_mtime, e.path) for e in it
+                if e.name.lower().startswith("borrador") and e.name.lower().endswith(".pdf")]
+    return Path(max(pdfs)[1]) if pdfs else None
