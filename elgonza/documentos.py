@@ -42,10 +42,11 @@ class Documento:
     texto: str = ""
     ocr: bool = False
     error: str = ""
+    titulo: str = ""   # cómo se muestra en el informe (de Mega6: «FACN E-0043-00001897 (RADE …)»)
 
     @property
     def nombre(self):
-        return self.ruta.name
+        return self.titulo or self.ruta.name
 
 
 def _sin_tildes(s):
@@ -120,7 +121,8 @@ def extraer_texto(ruta, usar_ocr=True, dpi=300):
         import fitz
     ruta = Path(ruta)
     datos = ruta.read_bytes()
-    clave = "v2-" + hashlib.sha1(datos).hexdigest()
+    # v3 para imágenes: antes solo se leía la primera página de los TIFF de varias páginas
+    clave = ("v2-" if ruta.suffix.lower() == ".pdf" else "v3-") + hashlib.sha1(datos).hexdigest()
     cache = carpeta_cache() / f"{clave}.json"
     if cache.exists():
         try:
@@ -137,13 +139,14 @@ def extraer_texto(ruta, usar_ocr=True, dpi=300):
         doc = fitz.open(stream=datos, filetype="pdf")
         paginas = list(doc)
     else:
-        doc, paginas = None, [None]
+        doc, paginas = None, _paginas_imagen(datos)
     for pagina in paginas:
-        t = pagina.get_text() if pagina is not None else ""
+        es_pdf = doc is not None
+        t = pagina.get_text() if es_pdf else ""
         if len(t.strip()) >= 40:
             t = _texto_con_columnas(datos, pagina.number) or t
         if len(t.strip()) < 40 and usar_ocr:
-            t = _ocr_pagina(pagina, datos if pagina is None else None, dpi)
+            t = _ocr_pagina(pagina if es_pdf else None, None if es_pdf else pagina, dpi)
             fue_ocr = True
         textos.append(t)
     texto = "\n\f\n".join(textos)
@@ -166,14 +169,18 @@ def _texto_con_columnas(datos, nro_pagina):
         return ""
 
 
-def _ocr_pagina(pagina, datos_imagen, dpi):
+def _paginas_imagen(datos):
+    """Las páginas de una imagen (los TIFF de Mega6 traen todas las hojas del documento en un solo archivo)."""
+    from PIL import Image, ImageSequence
+    return [p.copy() for p in ImageSequence.Iterator(Image.open(io.BytesIO(datos)))]
+
+
+def _ocr_pagina(pagina, img, dpi):
     import pytesseract
-    from PIL import Image
     if pagina is not None:
+        from PIL import Image
         pix = pagina.get_pixmap(dpi=dpi)
         img = Image.open(io.BytesIO(pix.tobytes("png")))
-    else:
-        img = Image.open(io.BytesIO(datos_imagen))
     img = img.convert("L")
     texto = pytesseract.image_to_string(img, lang=_idiomas_ocr(), config="--psm 6")
     if _ruidoso(texto):
@@ -201,7 +208,7 @@ def ocr_profundo(ruta, dpi=400):
     if ruta.suffix.lower() == ".pdf":
         imagenes = [Image.open(io.BytesIO(p.get_pixmap(dpi=dpi).tobytes("png"))) for p in fitz.open(stream=datos, filetype="pdf")]
     else:
-        imagenes = [Image.open(io.BytesIO(datos))]
+        imagenes = _paginas_imagen(datos)
     for img in imagenes:
         img = img.convert("L").filter(ImageFilter.MedianFilter(3))
         textos.append(pytesseract.image_to_string(img, lang=_idiomas_ocr(), config="--psm 11"))
@@ -225,29 +232,39 @@ def _ruidoso(texto):
 EXTENSIONES = {".pdf", ".png", ".jpg", ".jpeg", ".tif", ".tiff"}
 
 
-def cargar_carpeta(carpeta, usar_ocr=True, avisar=None):
-    """Lista los documentos de la carpeta del despacho. Devuelve (ruta_borrador, [Documento])."""
+def cargar_carpeta(carpeta, usar_ocr=True, avisar=None, mega6=None):
+    """Lista los documentos de la carpeta del despacho. Devuelve (ruta_borrador, [Documento]).
+
+    mega6: número de carpeta para traer sus documentos de Mega6 en vez de los archivos de la carpeta.
+    """
     carpeta = Path(carpeta)
     archivos = sorted(p for p in carpeta.iterdir() if p.is_file() and p.suffix.lower() in EXTENSIONES)
-    borrador = None
-    docs = []
+    borrador = next((p for p in archivos if tipo_por_nombre(p.name) == "borrador"), None)
     if usar_ocr:
         usar_ocr = configurar_tesseract()
         if not usar_ocr and avisar:
             avisar("No encontré Tesseract OCR: solo se leerán los PDF que tengan texto.")
-    for p in archivos:
-        tipo = tipo_por_nombre(p.name)
-        if tipo == "borrador":
-            borrador = p
-            continue
+    if mega6:
+        from .mega6 import documentos_de_carpeta
+        from .mega6 import FACTURA_ES_FLETE
+        lista = [(r, d.tipo, f"{d.codigo} {d.numero} (RADE {d.rade})", d.codigo in FACTURA_ES_FLETE)
+                 for d, r in documentos_de_carpeta(mega6)]
         if avisar:
-            avisar(f"Leyendo {p.name}…")
-        d = Documento(ruta=p, tipo=tipo)
+            avisar(f"Mega6: {len(lista)} documentos de la carpeta {mega6}")
+    else:
+        lista = [(p, tipo_por_nombre(p.name), p.name, False) for p in archivos if p != borrador]
+    docs = []
+    for p, tipo, nombre, es_flete in lista:
+        if avisar:
+            avisar(f"Leyendo {nombre}…")
+        d = Documento(ruta=p, tipo=tipo, titulo=nombre)
         try:
             d.texto, d.ocr = extraer_texto(p, usar_ocr=usar_ocr)
         except Exception as e:  # un documento ilegible no frena la revisión
             d.error = str(e)
         if d.tipo == "otro" and d.texto:
             d.tipo = tipo_por_contenido(d.texto)
+            if es_flete and d.tipo in ("factura", "otro"):
+                d.tipo = "flete"
         docs.append(d)
     return borrador, docs

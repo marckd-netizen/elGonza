@@ -18,6 +18,18 @@ La carpeta tiene que tener un archivo cuyo nombre empiece con `Borrador` (el PDF
 El tipo de los demás documentos se deduce del nombre (`fact`, `inv`, `flete`, `seguro`, `cese`, `conc`, `bl`,
 `awb`, `guia`, `pack`, `thc`, `gastos`) y, si no alcanza, del contenido.
 
+## Documentos desde Mega6
+
+Con **Borrador + Mega6…** se elige solo el PDF del borrador y elGonza trae los documentos RADE de esa carpeta
+desde Mega6 (facturas, conocimiento, packing, flete, seguro, certificados), sin copiarlos a mano. También pasa
+si la carpeta elegida tiene solo el borrador. Desde la línea de comandos: `elgonza Borrador145475.pdf` o
+`elgonza carpeta --mega6`.
+
+El programa busca la base en `F:\Permiso6`, `D:\Permiso6` o `C:\Permiso6` (o en la variable `ELGONZA_MEGA6`).
+Solo lee: el índice `A2137081` une cada documento con su número RADE y su imagen
+`IMGRADE\NNNN\M00xxxxxx.tif`. La primera vez arma el índice (unos segundos) y lo guarda en la caché.
+No se leen los poderes (AURI).
+
 ## Libro de clientes
 
 Los criterios propios de cada cliente se anotan en `Documentos\elGonza\clientes.txt` (botón **Libro de clientes…** en la ventana). Una regla por línea:

@@ -8,7 +8,8 @@ from pathlib import Path
 
 from . import __version__
 from .borrador import extraer_texto_pdf, parsear
-from .documentos import cargar_carpeta
+from .documentos import EXTENSIONES, cargar_carpeta
+from .mega6 import raiz_mega6
 from .informe import a_json, generar
 from .reglas import Revision
 
@@ -19,16 +20,32 @@ def carpeta_informes():
     return d
 
 
-def revisar_carpeta(carpeta, salida=None, usar_ocr=True, avisar=print):
-    """Revisa una carpeta de despacho. Devuelve (ruta_informe, controles) o (None, mensaje) si no hay borrador."""
+def revisar_carpeta(carpeta, salida=None, usar_ocr=True, avisar=print, mega6=None):
+    """Revisa una carpeta de despacho (o un PDF de borrador). Devuelve (ruta_informe, controles) o (None, mensaje).
+
+    mega6: True para tomar los documentos de Mega6, False para no usarlo. Sin indicar, se usa Mega6 cuando la
+    carpeta tiene solo el borrador.
+    """
     carpeta = Path(carpeta)
-    ruta_borrador, docs = cargar_carpeta(carpeta, usar_ocr=usar_ocr, avisar=avisar)
+    if carpeta.is_file():
+        ruta_borrador, carpeta, mega6 = carpeta, carpeta.parent, True if mega6 is None else mega6
+    else:
+        ruta_borrador = next((p for p in sorted(carpeta.iterdir()) if p.is_file()
+                              and p.suffix.lower() == ".pdf" and p.name.lower().startswith("borrador")), None)
     if not ruta_borrador:
         return None, f"No encontré un archivo «Borrador…» en {carpeta}"
     avisar(f"Leyendo {ruta_borrador.name}…")
     b = parsear(extraer_texto_pdf(ruta_borrador))
     if not b.carpeta:
         b.carpeta = carpeta.name
+    if mega6 is None:
+        otros = [p for p in carpeta.iterdir() if p.is_file() and p.suffix.lower() in EXTENSIONES and p != ruta_borrador]
+        mega6 = not otros and raiz_mega6() is not None
+    if mega6 and raiz_mega6() is None:
+        return None, "No encontré la base de Mega6 (Permiso6). Indicá la ruta en la variable ELGONZA_MEGA6."
+    _, docs = cargar_carpeta(carpeta, usar_ocr=usar_ocr, avisar=avisar, mega6=b.carpeta if mega6 else None)
+    if mega6 and not docs:
+        return None, f"Mega6 no tiene documentos RADE para la carpeta {b.carpeta}"
     controles = Revision(b, docs).ejecutar()
     salida = Path(salida) if salida else carpeta_informes()
     salida.mkdir(parents=True, exist_ok=True)
@@ -58,16 +75,17 @@ def main(argv=None):
     ap.add_argument("--salida", help="Carpeta donde guardar los informes (por defecto Documentos\\elGonza\\informes)")
     ap.add_argument("--sin-ocr", action="store_true", help="No usar OCR en documentos escaneados")
     ap.add_argument("--no-abrir", action="store_true", help="No abrir el informe en el navegador")
+    ap.add_argument("--mega6", action="store_true", help="Tomar los documentos de Mega6 aunque la carpeta tenga archivos")
     ap.add_argument("--version", action="version", version=__version__)
     args = ap.parse_args(argv)
     if not args.carpeta:
         return ventana()
-    carpetas = carpetas_a_revisar(args.carpeta)
+    carpetas = [Path(args.carpeta)] if Path(args.carpeta).is_file() else carpetas_a_revisar(args.carpeta)
     if not carpetas:
         print(f"No encontré borradores en {args.carpeta}")
         return 1
     for c in carpetas:
-        ruta, controles = revisar_carpeta(c, args.salida, not args.sin_ocr)
+        ruta, controles = revisar_carpeta(c, args.salida, not args.sin_ocr, mega6=True if args.mega6 else None)
         if ruta is None:
             print(controles)
             continue
@@ -86,7 +104,7 @@ def ventana():
     raiz.geometry("720x460")
     marco = tk.Frame(raiz, padx=12, pady=12)
     marco.pack(fill="both", expand=True)
-    tk.Label(marco, text="Elegí la carpeta del despacho (o una carpeta con varias).", anchor="w").pack(fill="x")
+    tk.Label(marco, text="Elegí la carpeta del despacho (o una carpeta con varias), o solo el borrador para traer los documentos de Mega6.", anchor="w").pack(fill="x")
     log = scrolledtext.ScrolledText(marco, height=18, state="disabled", font=("Consolas", 10))
     informes = []
 
@@ -100,11 +118,11 @@ def ventana():
 
     def trabajar(carpeta):
         try:
-            carpetas = carpetas_a_revisar(carpeta)
+            carpetas = [Path(carpeta)] if Path(carpeta).is_file() else carpetas_a_revisar(carpeta)
             if not carpetas:
                 escribir("No encontré ningún archivo «Borrador…» en esa carpeta.")
             for c in carpetas:
-                escribir(f"— Revisando {c.name}")
+                escribir(f"— Revisando {c.stem if c.is_file() else c.name}")
                 ruta, controles = revisar_carpeta(c, avisar=escribir)
                 if ruta is None:
                     escribir(controles)
@@ -129,6 +147,17 @@ def ventana():
         boton.configure(state="disabled")
         threading.Thread(target=trabajar, args=(carpeta,), daemon=True).start()
 
+    def elegir_borrador():
+        archivo = filedialog.askopenfilename(title="Borrador del DUA", filetypes=[("PDF", "*.pdf")])
+        if not archivo:
+            return
+        if raiz_mega6() is None:
+            escribir("No encontré la base de Mega6 (Permiso6).")
+            return
+        informes.clear()
+        boton.configure(state="disabled")
+        threading.Thread(target=trabajar, args=(archivo,), daemon=True).start()
+
     def abrir_libro():
         from .clientes import cargar, ruta_libro
         cargar()  # lo crea con ejemplos si no existe
@@ -139,7 +168,8 @@ def ventana():
     botones.pack(anchor="w", pady=8, fill="x")
     boton = tk.Button(botones, text="Elegir carpeta y revisar…", command=elegir, padx=10, pady=4)
     boton.pack(side="left")
-    tk.Button(botones, text="Libro de clientes…", command=abrir_libro, padx=10, pady=4).pack(side="left", padx=8)
+    tk.Button(botones, text="Borrador + Mega6…", command=elegir_borrador, padx=10, pady=4).pack(side="left", padx=8)
+    tk.Button(botones, text="Libro de clientes…", command=abrir_libro, padx=10, pady=4).pack(side="left")
     log.pack(fill="both", expand=True)
     raiz.mainloop()
     return 0

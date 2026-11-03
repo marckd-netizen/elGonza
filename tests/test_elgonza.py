@@ -249,3 +249,42 @@ def test_libro_clientes_con_proveedor():
     assert res.count("error") == 2
     b.proveedor = "OTRO PROVEEDOR"
     assert not [c for c in Revision(b, [], clientes=reglas).ejecutar() if c.regla == 40]
+
+
+def _registro_mega6(texto):
+    """Arma un registro como los de A2137081: cabecera de 16 bytes y el contenido en literales."""
+    datos = texto.encode("latin-1")
+    cuerpo = b"".join(bytes([len(datos[i:i + 60])]) + datos[i:i + 60] for i in range(0, len(datos), 60))
+    return b"\x00\x04\x00\x04\xd9\xf9\x00\x03\x34\x2a\x00\x06\x49\xb2" + len(cuerpo).to_bytes(2, "big") + cuerpo
+
+
+def test_indice_mega6(tmp_path, monkeypatch):
+    from elgonza import mega6
+    monkeypatch.setenv("LOCALAPPDATA", str(tmp_path / "cache"))
+    regs = [
+        "I145475FACNE-0043-00001897          00I 145475E-0043-00001897     20260223A00144715891124784686     97560",
+        "I145475FACC1044/735679              00I 145475A1044/735679        20260224A00144717891124784697     97561",
+        "I145475AURI214409330011             00I 145475214409330011        20260224A00144720891124784699     97562",
+    ]
+    raiz = tmp_path / "Permiso6"
+    (raiz / "IMGRADE" / "0145").mkdir(parents=True)
+    (raiz / "A2137081").write_bytes(b"\xff" * 30 + b"".join(_registro_mega6(r) for r in regs) + b"\xff" * 30)
+    for n in (144715, 144717, 144720):
+        (raiz / "IMGRADE" / "0145" / f"M00{n}.tif").write_bytes(b"x")
+    docs = mega6.indice(raiz)["145475"]
+    assert {(d.codigo, d.numero, d.imagen) for d in docs} == {
+        ("FACN", "E-0043-00001897", 144715), ("FACC", "1044/735679", 144717), ("AURI", "214409330011", 144720)}
+    lista = mega6.documentos_de_carpeta("145475", raiz)
+    assert [d.codigo for d, _ in lista] == ["FACN", "FACC"]   # el poder (AURI) no se lee
+    assert lista[0][1] == raiz / "IMGRADE" / "0145" / "M00144715.tif"
+    assert lista[0][0].tipo == "factura"
+    assert mega6.indice(raiz)["145475"][0].rade == docs[0].rade   # sale de la caché
+
+
+def test_tiff_de_varias_paginas(tmp_path):
+    from PIL import Image
+    from elgonza.documentos import _paginas_imagen
+    hojas = [Image.new("L", (40, 40), c) for c in (0, 128, 255)]
+    ruta = tmp_path / "M00000001.tif"
+    hojas[0].save(ruta, save_all=True, append_images=hojas[1:])
+    assert len(_paginas_imagen(ruta.read_bytes())) == 3

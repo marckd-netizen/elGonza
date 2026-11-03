@@ -46,7 +46,7 @@ class Revision:
 
     def vigentes(self):
         """Documentos a usar: si hay un borrador (draft) y la versión final del mismo tipo, se ignora el draft."""
-        es_draft = lambda d: re.search(r"draft|borrador", d.ruta.stem, re.I) is not None
+        es_draft = lambda d: re.search(r"draft|borrador", re.sub(r"\.\w{2,4}$", "", d.nombre), re.I) is not None
         finales = {d.tipo for d in self.docs if not es_draft(d)}
         return [d for d in self.docs if not (es_draft(d) and d.tipo in finales)]
 
@@ -74,7 +74,7 @@ class Revision:
             puntos = 0
             if buscar_codigo(f.numero, d.texto):
                 puntos += 2
-            nombre = re.sub(r"\D+", " ", d.ruta.stem).split()
+            nombre = re.sub(r"\D+", " ", re.sub(r"\.\w{2,4}$", "", d.nombre)).split()
             if any(len(n) >= 2 and any(g == n or g.endswith(n) or n.endswith(g) and len(g) >= 3 for g in grupos)
                    for n in nombre if n != self.b.carpeta):
                 puntos += 1
@@ -691,7 +691,9 @@ class Revision:
     def r_37_reparacion(self):
         # Solo facturas y descripciones: las condiciones impresas de los BL hablan de "repairs" y "warranty"
         t = (self.textos("factura") + " " + " ".join(i.descripcion for i in self.b.items)).upper()
-        if re.search(r"\bREPAIR|\bREPARACI|\bREPARAD|\bWARRANTY|\bGARANT[IÍ]A", t):
+        # «REPARACIÓN» sola es a menudo el nombre de un producto (tratamiento capilar reparación): se pide contexto
+        if re.search(r"\bREPAIR|\bREPARACI[OÓ]N DE\b|\b(?:PARA|EN) REPARACI|\bREPARAD[OA]S?\b|\bWARRANTY|"
+                     r"\b(?:EN|BAJO|POR) GARANT[IÍ]A", t):
             if any(it.subregimen in ("11", "12") for it in self.b.items):
                 self.agregar(37, "Subrégimen", "error", "Los documentos hablan de reparación o garantía y el DUA es una importación definitiva común",
                              "Si el bien salió de Uruguay a reparar, corresponde reimportación tras exportación temporal citando esa salida. "
