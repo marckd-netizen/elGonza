@@ -31,14 +31,15 @@ jobs:
           choco install tesseract -y --no-progress
           $t = "C:\Program Files\Tesseract-OCR"
           Invoke-WebRequest https://github.com/tesseract-ocr/tessdata_fast/raw/main/spa.traineddata -OutFile "$t\tessdata\spa.traineddata"
-      - name: Armar elGonza.exe
-        run: pyinstaller --onefile --windowed --name elGonza elgonza_app.py
+      - name: Armar elGonza (carpeta, abre más rápido que un solo .exe)
+        run: pyinstaller --onedir --windowed --name elGonza elgonza_app.py
       - name: Paquete
         shell: pwsh
         run: |
           New-Item -ItemType Directory paquete | Out-Null
-          Copy-Item dist\elGonza.exe paquete\
-          Copy-Item -Recurse "C:\Program Files\Tesseract-OCR" paquete\Tesseract-OCR
+          Copy-Item -Recurse dist\elGonza paquete\programa
+          Copy-Item -Recurse "C:\Program Files\Tesseract-OCR" paquete\programa\Tesseract-OCR
+          Copy-Item empaque\elGonza.cmd paquete\
           Copy-Item README.md paquete\LEEME.md
           Copy-Item docs\libro_de_criterios.md paquete\
       - uses: actions/upload-artifact@v4

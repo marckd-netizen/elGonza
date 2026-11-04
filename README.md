@@ -8,7 +8,7 @@ No modifica nada en la carpeta del despacho. Los informes quedan en `Documentos\
 
 ## Uso
 
-1. Abrir `elGonza.exe`.
+1. Abrir `elGonza.cmd` (o `programa\elGonza.exe`).
 2. **Elegir carpeta y revisar…**: la carpeta de un despacho, o una carpeta que tenga varias carpetas de despacho adentro.
 3. Se abre el informe en el navegador con errores, advertencias, puntos a revisar y los controles que dieron bien.
 4. En cada observación se puede marcar **Es correcto** o **Falsa alarma** y dejar un comentario.
@@ -50,7 +50,12 @@ El cliente puede ser parte del nombre o el RUT. Condiciones: `ajuste > 0`, `ajus
 ## Descarga
 
 Cada cambio en el repositorio arma el paquete en GitHub Actions (flujo **Windows**). El artefacto
-`elGonza-windows` trae `elGonza.exe` y la carpeta `Tesseract-OCR` con español; hay que dejarlos juntos.
+`elGonza-windows` trae `elGonza.cmd` y la carpeta `programa` (el programa con `Tesseract-OCR` en español).
+
+**En la red (F:) para todas las computadoras:** copiar `elGonza.cmd` y `programa` a una carpeta de F: y hacer un
+acceso directo a `elGonza.cmd` en cada equipo. Al abrirlo, copia el programa a
+`%LOCALAPPDATA%\elGonza\programa` solo si cambió (la primera vez tarda un poco, después es casi inmediato) y lo
+abre desde la computadora. Para actualizar todas, alcanza con reemplazar la carpeta `programa` en F:.
 
 ## Desde Python
 
