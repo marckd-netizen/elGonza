@@ -332,3 +332,26 @@ def test_tot_fac_con_flete():
     assert (12, "ok") in res and (12, "error") not in res and (2, "error") not in res
     b.tot_fac = 1300.0
     assert (12, "error") in [(c.regla, c.resultado) for c in Revision(b, [], clientes=[]).ejecutar()]
+
+
+def test_suma_cantidades_de_la_factura():
+    from elgonza.borrador import Borrador, Factura, Item
+    from elgonza.reglas import lineas_de_factura
+    texto = ("INVOICE 2940286\n"
+             "4 C22920020 LUGGAGE SCALE     9  9 8721037 771948  96 PCS  3,45       331,20\n"
+             "6 491141350 CREPE PAPER SET OF 8 36 32 8721037 841184 288 SET 0,90    259,20\n"
+             "10 DX2100310 SOLAR TABLE LAMP LED 30 27 8721037 830690 120 PCS 2,50    300,00\n"
+             "3 31636 BL. SAC,AP C/ GOMA + CEPILLO TORRE 1.404 UNI 0,548 769,39\n"
+             "https://torre2610.acepta.com/v01/3_2 1/2\n")
+    assert [x[0] for x in lineas_de_factura(texto)] == [96, 288, 120, 1404]
+    doc = Documento(ruta=Path("factura 2940286.pdf"), tipo="factura", texto=texto)
+    b = Borrador()
+    b.facturas = [Factura("FACN", "2940286", "01/11/2026", valor=1659.79)]
+    b.items = [Item(nro=1, ncm="", cant_comercial=384, facturas=["2940286"]), Item(nro=2, ncm="", cant_comercial=1524, facturas=["2940286"])]
+    res = [(c.regla, c.resultado, c.detalle) for c in Revision(b, [doc], clientes=[]).ejecutar()]
+    assert not [x for x in res if x[:2] == (9, "error")], res
+    b.items[1].cant_comercial = 1500
+    assert (9, "error") in [(c.regla, c.resultado) for c in Revision(b, [doc], clientes=[]).ejecutar()]
+    # si las líneas leídas no suman el valor de la factura, no se compara
+    b.facturas[0].valor = 5000
+    assert not [c for c in Revision(b, [doc], clientes=[]).ejecutar() if c.titulo.startswith("La suma de cantidades")]

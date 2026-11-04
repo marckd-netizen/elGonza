@@ -304,9 +304,7 @@ class Revision:
 
     def r_09_unidades(self):
         b = self.b
-        total = sum(i.cant_comercial for i in b.items)
-        if b.total_unidades and not self.cerca(total, b.total_unidades, 0.01, 0):
-            self.agregar(9, "Unidades", "advertencia", "La suma de cantidades comerciales no da el Total de Unidades", f"{fmt(total, 3)} vs {fmt(b.total_unidades, 3)}")
+        # (el Total de Unidades del cabezal lo arma Mega6 sumando los ítems: compararlo no sirve)
         for it in b.items:
             uf = it.unidad_fisica.split()[-1] if it.unidad_fisica else ""
             if uf.startswith("KILO") and it.neto and not self.cerca(it.cant_fisica, it.neto, 0.01, 0.001):
@@ -326,7 +324,8 @@ class Revision:
         errores, dudas = [], []
         for it in b.items:
             refs = referencias_por_factura(it)
-            if len(it.facturas) != 1 or it.facturas[0] not in facs or sum(len(v) for v in refs.values()) > 1:
+            if len(it.facturas) != 1 or it.facturas[0] not in facs or sum(len(v) for v in refs.values()) > 1 \
+                    or it.facturas[0] in getattr(self, "_facturas_sumadas", ()):
                 continue  # si el ítem junta varias líneas, la cantidad es una suma
             f = facs[it.facturas[0]]
             doc = self._doc_de_factura(f)
@@ -353,6 +352,58 @@ class Revision:
             self.agregar(9, "Cantidades", "error", "La cantidad declarada no coincide con la factura", "; ".join(errores))
         if dudas:
             self.agregar(9, "Cantidades", "revisar", "No pude leer en la factura la cantidad declarada", "; ".join(dudas) + ". Confirmar a ojo.")
+
+    def r_09_a_suma_cantidades_factura(self):
+        """Suma las cantidades de las líneas de cada factura y la compara con las cantidades declaradas.
+
+        Solo cuando las líneas leídas (cantidad × precio = total) suman el valor de la factura, así se sabe que
+        no faltó ninguna. Las facturas que comparten ítems se comparan juntas."""
+        b = self.b
+        self._facturas_sumadas = set()   # las que ya cierran: r_09_cantidades_en_factura no las vuelve a mirar
+        facs = {f.numero: f for f in b.facturas_comerciales}
+        if not facs or not b.items:
+            return
+        grupo = {n: n for n in facs}
+
+        def raiz(n):
+            while grupo[n] != n:
+                n = grupo[n]
+            return n
+        for it in b.items:
+            fs = [n for n in it.facturas if n in facs]
+            for n in fs[1:]:
+                grupo[raiz(n)] = raiz(fs[0])
+        leidas = {}
+        for n, f in facs.items():
+            doc = self._doc_de_factura(f)
+            if not doc or not f.valor:
+                continue
+            lineas = lineas_de_factura(doc.texto)
+            suma = sum(x[2] for x in lineas)
+            # 810,000 leído como 810000 en todas las líneas: las cantidades siguen bien
+            if lineas and any(self.cerca(suma, f.valor * e, 1, 0.005) for e in (1, 1000, 0.001)):
+                leidas[n] = (sum(x[0] for x in lineas), doc.ocr)
+        errores, dudas = [], []
+        for r in sorted({raiz(n) for n in facs}):
+            miembros = sorted(n for n in facs if raiz(n) == r)
+            items = [it for it in b.items if any(n in miembros for n in it.facturas)]
+            if not items or any(n not in leidas for n in miembros):
+                continue
+            if any(n not in facs for it in items for n in it.facturas):
+                continue  # el ítem va con una factura que no está en la lista
+            en_factura = sum(leidas[n][0] for n in miembros)
+            declarado = sum(it.cant_comercial for it in items)
+            if self.cerca(en_factura, declarado, 0.5, 0.0005):
+                self._facturas_sumadas.update(miembros)
+                continue
+            desc = (f"factura{'s' if len(miembros) > 1 else ''} {', '.join(miembros)}: "
+                    f"suman {fmt(en_factura, 2)}, los ítems declaran {fmt(declarado, 2)}")
+            (dudas if any(leidas[n][1] for n in miembros) else errores).append(desc)
+        if errores:
+            self.agregar(9, "Cantidades", "error", "La suma de cantidades de la factura no da lo declarado", "; ".join(errores))
+        if dudas:
+            self.agregar(9, "Cantidades", "revisar", "La suma de cantidades de la factura no da lo declarado (leída con OCR)",
+                         "; ".join(dudas) + ". Confirmar a ojo.")
 
     def r_10_origen(self):
         declarados = {_pais(it.origen) for it in self.b.items if it.origen}
@@ -754,6 +805,44 @@ def _cantidad_por_precio(texto, importe):
             if p != q and p != 1 and abs(q * p - importe) <= 0.02:
                 return q, p
     return None
+
+
+def _lecturas(tok):
+    """Valores posibles de un número: 70.400 puede ser 70,4 o 70400."""
+    v = {num_libre(tok)}
+    if re.fullmatch(r"\d{1,3}[.,]\d{3}", tok):
+        v.add(float(tok.replace(",", ".")))
+    return {x for x in v if x}
+
+
+def lineas_de_factura(texto):
+    """[(cantidad, precio, total, renglón)] de los renglones donde dos números multiplicados dan un tercero
+    que está más a la derecha. Si hay varias opciones, gana el total más a la derecha, los factores más pegados
+    a él y la lectura con la cantidad entera primero."""
+    res = []
+    for l in texto.splitlines():
+        if re.search(r"(?i)https?:|www\.", l):
+            continue
+        toks = [t for t in re.findall(r"\d[\d.,]*\d|\d", l) if len(re.sub(r"\D", "", t)) <= 12][-15:]
+        if len(toks) < 3:
+            continue
+        vals = [_lecturas(t) for t in toks]
+        mejor = None
+        for k in range(2, len(vals)):
+            for t in vals[k]:
+                for i in range(k):
+                    for j in range(i + 1, k):
+                        for a in vals[i]:
+                            for c in vals[j]:
+                                if 1 in (a, c) or t in (a, c) or abs(a * c - t) > max(0.011, 0.0005 * t):
+                                    continue
+                                q, p = (a, c) if (a == int(a) or c != int(c)) else (c, a)
+                                clave = (k, t, i + j, a == int(a))  # la cantidad suele ir antes que el precio
+                                if not mejor or clave > mejor[0]:
+                                    mejor = (clave, (q, p, t, l.strip()))
+        if mejor:
+            res.append(mejor[1])
+    return res
 
 
 def _bruto_neto_kg(texto):
