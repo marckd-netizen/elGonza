@@ -357,3 +357,20 @@ def test_suma_cantidades_de_la_factura():
     res = Revision(b, [doc], clientes=[]).ejecutar()
     assert not [c for c in res if c.titulo.startswith("La suma de cantidades")]
     assert [c for c in res if c.titulo == "No pude sumar las cantidades de la factura" and c.resultado == "revisar"]
+
+
+def test_precinto_con_letras_en_el_bl():
+    from elgonza.reglas import _precinto_con_letras
+    assert _precinto_con_letras("260122193", "SEAL NO: SL260122193 / CONTAINER")
+    assert _precinto_con_letras("260122193", "SEAL 2601 ML 22193")
+    assert not _precinto_con_letras("260122193", "SEAL 260122194 GROSS 12")
+
+
+def test_euro_suelto_no_es_moneda():
+    from elgonza.borrador import Borrador, Factura
+    b = Borrador(moneda="840")
+    b.facturas = [Factura("FACN", "CCC026040901", "01/11/2026", valor=1000.0, moneda="840")]
+    doc = Documento(ruta=Path("factura.pdf"), tipo="factura", texto="INVOICE CCC026040901 EURO PLAST S.A. TOTAL 1.000,00")
+    assert (5, "error") not in [(c.regla, c.resultado) for c in Revision(b, [doc], clientes=[]).ejecutar()]
+    doc.texto = "INVOICE CCC026040901 TOTAL EUR 1.000,00"
+    assert (5, "error") in [(c.regla, c.resultado) for c in Revision(b, [doc], clientes=[]).ejecutar()]

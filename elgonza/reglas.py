@@ -168,12 +168,16 @@ class Revision:
             if not doc:
                 continue
             t = doc.texto.upper()
-            eur = bool(re.search(r"\bEUR\b|€|\bEUROS?\b", t))
+            # la moneda tiene que estar pegada a un importe o rotulada («Currency: EUR»), o en el total en letras;
+            # «EURO» suelto puede ser parte de un nombre (EUROPA, EUROPLAST) y el OCR inventa símbolos
+            eur = bool(re.search(r"(?:\bEUR\b|€)\s*\d|\d\s*(?:\bEUR\b|€)|(?:CURRENCY|MONEDA|DIVISA)\W{0,5}(?:EUR|€)"
+                                 r"|\bEUROS\b|\bIN EURO\b|\bEN EUROS?\b", t))
             usd = bool(re.search(r"\bUSD\b|US\$|U\$S|DOLAR|DOLLAR", t))
+            grav = "revisar" if doc.ocr else "error"
             if f.moneda == "902" and usd and not eur:
-                self.agregar(5, "Moneda", "error", f"Factura {f.numero} declarada en euros y el documento está en dólares")
+                self.agregar(5, "Moneda", grav, f"Factura {f.numero} declarada en euros y el documento está en dólares")
             elif f.moneda == USD and eur and not usd:
-                self.agregar(5, "Moneda", "error", f"Factura {f.numero} declarada en dólares y el documento está en euros")
+                self.agregar(5, "Moneda", grav, f"Factura {f.numero} declarada en dólares y el documento está en euros")
 
     def r_06_facturas(self):
         b = self.b
@@ -683,6 +687,10 @@ class Revision:
                     if not valor:
                         continue
                     c = coincidencia_codigo(valor, t)
+                    if not c and regla == 24 and valor.isdigit() and len(valor) >= 5 and _precinto_con_letras(valor, t):
+                        self.agregar(24, "Precinto", "ok", f"Precinto {valor} coincide con el BL",
+                                     "En el BL tiene letras entre medio; se declaran solo los números.")
+                        continue
                     if c == "exacta":
                         self.agregar(regla, nombre, "ok", f"{nombre} {valor} coincide con el BL")
                     elif c == "aproximada":
@@ -795,6 +803,15 @@ class Revision:
 
 
 # ---------------------------------------------------------------------------
+def _precinto_con_letras(numero, texto):
+    """True si en el texto hay un código cuyos dígitos son el número (precinto 'SL260122193' o '2601-AB-22193')."""
+    for m in re.finditer(r"[A-Z0-9][A-Z0-9./ -]{0,24}[A-Z0-9]", texto.upper()):
+        for tok in re.findall(r"[A-Z0-9][A-Z0-9./-]*(?: ?[A-Z]{1,4} ?[A-Z0-9./-]+)*", m.group(0)):
+            if re.search(r"[A-Z]", tok) and re.sub(r"\D", "", tok) == numero:
+                return True
+    return False
+
+
 def buscar_codigo(codigo, texto):
     """Busca un número de documento tolerando separadores y espacios del OCR, sin pegarse a otros dígitos."""
     c = solo_alnum(codigo)

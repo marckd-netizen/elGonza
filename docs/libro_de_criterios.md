@@ -14,7 +14,7 @@ Resultados: **error** (probable error con impacto en tributos o validez), **adve
 | 2 | La condición de compra / Incoterm del DUA coincide con cada factura. Cada factura tiene condición real y condición de factura: en aéreo la real es FCA aunque el proveedor ponga FOB o EXW, y se declaran las dos. El cabezal lleva la de la factura. | Sí (cabezal vs facturas y texto de la factura) |
 | 3 | La frontera o aduana de ingreso coincide con el documento de transporte. | Parcial |
 | 4 | Tipo de importación y subrégimen corresponden a la operación (Doc.Carga 32 ↔ subrégimen 12; con libros, 1C). | Sí |
-| 5 | La moneda del DUA es la de la factura de origen. | Sí |
+| 5 | La moneda del DUA es la de la factura de origen. Solo cuenta la moneda pegada a un importe, rotulada (Currency: EUR) o en el total en letras; «EURO» suelto puede ser un nombre. | Sí (con OCR queda «revisar») |
 | 6 | Números y fechas de factura coinciden con los documentos. | Sí (con OCR; si no se lee, queda «revisar») |
 | 7 | Bultos y cantidades coinciden; cada línea de factura asignada a un solo ítem. | Sí |
 | 8 | Pesos brutos y netos coinciden. Con dos conocimientos, el bruto puede ser la suma de ambos. | Sí |
@@ -49,7 +49,7 @@ Resultados: **error** (probable error con impacto en tributos o validez), **adve
 | 21 | Número de BL / guía (MAWB, HAWB) del DUA = el del documento. | Sí |
 | 22 | Buque: el del arribo, aunque el BL nombre otro por transbordo. | «Revisar» si no coincide con el BL |
 | 23 | Contenedor solo en FCL; en LCL se declaran 0. Dígito verificador correcto. Cada contenedor declarado tiene que figurar en el BL. | Sí |
-| 24 | Precinto: solo la parte numérica. | Sí |
+| 24 | Precinto: solo la parte numérica. Si en el BL tiene letras entre medio, coincide igual cuando los números son los mismos. | Sí |
 | 25 | Terrestre: el CRT no se carga en el borrador (se asocia en frontera). | Sí (no se pide) |
 | 26 | Bandera del medio de transporte: viene de LUCIA / manifiesto, no se compara. | No se controla |
 | 27 | No numerar con un BL en estado DRAFT. | Sí si el OCR lee «DRAFT» |
