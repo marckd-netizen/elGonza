@@ -357,7 +357,7 @@ class Revision:
         """Suma las cantidades de las líneas de cada factura y la compara con las cantidades declaradas.
 
         Solo cuando las líneas leídas (cantidad × precio = total) suman el valor de la factura, así se sabe que
-        no faltó ninguna. Las facturas que comparten ítems se comparan juntas."""
+        no faltó ninguna; si no, avisa para sumarlas a mano. Las facturas que comparten ítems se comparan juntas."""
         b = self.b
         self._facturas_sumadas = set()   # las que ya cierran: r_09_cantidades_en_factura no las vuelve a mirar
         facs = {f.numero: f for f in b.facturas_comerciales}
@@ -374,15 +374,21 @@ class Revision:
             for n in fs[1:]:
                 grupo[raiz(n)] = raiz(fs[0])
         leidas = {}
+        sin_leer = []
         for n, f in facs.items():
             doc = self._doc_de_factura(f)
-            if not doc or not f.valor:
+            if not doc:
+                sin_leer.append(f"{n}: no encontré el documento")
                 continue
             lineas = lineas_de_factura(doc.texto)
             suma = sum(x[2] for x in lineas)
             # 810,000 leído como 810000 en todas las líneas: las cantidades siguen bien
-            if lineas and any(self.cerca(suma, f.valor * e, 1, 0.005) for e in (1, 1000, 0.001)):
+            if lineas and f.valor and any(self.cerca(suma, f.valor * e, 1, 0.005) for e in (1, 1000, 0.001)):
                 leidas[n] = (sum(x[0] for x in lineas), doc.ocr)
+            elif not lineas:
+                sin_leer.append(f"{n}: no pude leer las líneas")
+            else:
+                sin_leer.append(f"{n}: leí {len(lineas)} línea{'s' if len(lineas) > 1 else ''} por {fmt(suma)} de {fmt(f.valor)}")
         errores, dudas = [], []
         for r in sorted({raiz(n) for n in facs}):
             miembros = sorted(n for n in facs if raiz(n) == r)
@@ -399,6 +405,9 @@ class Revision:
             desc = (f"factura{'s' if len(miembros) > 1 else ''} {', '.join(miembros)}: "
                     f"suman {fmt(en_factura, 2)}, los ítems declaran {fmt(declarado, 2)}")
             (dudas if any(leidas[n][1] for n in miembros) else errores).append(desc)
+        if sin_leer:
+            self.agregar(9, "Cantidades", "revisar", "No pude sumar las cantidades de la factura",
+                         "; ".join(sin_leer) + ". Sumar a mano y comparar con los ítems.")
         if errores:
             self.agregar(9, "Cantidades", "error", "La suma de cantidades de la factura no da lo declarado", "; ".join(errores))
         if dudas:

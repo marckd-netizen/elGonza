@@ -59,7 +59,7 @@ Resultados: **error** (probable error con impacto en tributos o validez), **adve
 | # | Regla | Programa |
 |---|---|---|
 | 9b | La cantidad comercial de cada ítem tiene que coincidir con la factura. Es error: las cantidades son importantes. | Sí: error si la factura se leyó (cantidad × precio da el importe); a revisar si el OCR no la pudo leer |
-| 9c | La suma de las cantidades de las líneas de la factura (cantidad × precio = total) tiene que dar la suma de las cantidades comerciales de sus ítems. Solo se compara cuando las líneas leídas suman el valor de la factura; las facturas que comparten ítems se suman juntas. | Sí: error con PDF de texto, «revisar» si la factura vino por OCR |
+| 9c | La suma de las cantidades de las líneas de la factura (cantidad × precio = total) tiene que dar la suma de las cantidades comerciales de sus ítems. Solo se compara cuando las líneas leídas suman el valor de la factura; las facturas que comparten ítems se suman juntas. Si no se pudieron leer todas las líneas, avisa para sumar a mano. | Sí: error con PDF de texto, «revisar» si la factura vino por OCR |
 | 28 | Bultos del DUA = bultos del documento de transporte (o la suma por contenedor del BL). | Sí |
 | 29 | Bruto y neto = packing / BL; si el packing trae peso por línea, el neto por ítem sale de ahí. Con muchas facturas, el neto puede ser la suma de los netos de cada una. | Sí |
 | 30 | Convertir libras a kilos al comparar. | Se informa el equivalente |

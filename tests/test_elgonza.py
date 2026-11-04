@@ -354,4 +354,6 @@ def test_suma_cantidades_de_la_factura():
     assert (9, "error") in [(c.regla, c.resultado) for c in Revision(b, [doc], clientes=[]).ejecutar()]
     # si las líneas leídas no suman el valor de la factura, no se compara
     b.facturas[0].valor = 5000
-    assert not [c for c in Revision(b, [doc], clientes=[]).ejecutar() if c.titulo.startswith("La suma de cantidades")]
+    res = Revision(b, [doc], clientes=[]).ejecutar()
+    assert not [c for c in res if c.titulo.startswith("La suma de cantidades")]
+    assert [c for c in res if c.titulo == "No pude sumar las cantidades de la factura" and c.resultado == "revisar"]
