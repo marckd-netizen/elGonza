@@ -16,6 +16,7 @@ from .documentos import ocr_profundo
 from .numeros import aparece, coincidencia_codigo, digito_contenedor, fmt, num, num_libre, solo_alnum
 
 USD = "840"
+ADUANAS_CON_DEAP = ("FRAY BENTOS", "SALTO", "COLONIA")
 MERCOSUR = {"032", "076", "600", "858"}
 INCOTERMS = ["EXW", "FCA", "FAS", "FOB", "CFR", "CIF", "CPT", "CIP", "DAP", "DPU", "DDP"]
 SEVERIDAD = {"error": 0, "advertencia": 1, "revisar": 2, "ok": 3}
@@ -147,6 +148,17 @@ class Revision:
             nombre = re.sub(r"^\d+\s+", "", self.b.aduana_ingreso).strip()
             if nombre and nombre.split()[0] in self.textos("transporte", "flete").upper():
                 self.agregar(3, "Frontera", "ok", f"La aduana de ingreso ({nombre}) figura en el documento de transporte o flete")
+
+    def r_03_deap(self):
+        """En Fray Bentos, Salto y Colonia se declara el código DEAP en el cabezal."""
+        aduana = re.sub(r"^\d+\s+", "", self.b.aduana).strip().upper()
+        if not any(a in aduana for a in ADUANAS_CON_DEAP):
+            return
+        if any(c.upper() == "DEAP" for c, _ in self.b.certificados):
+            self.agregar(3, "DEAP", "ok", f"Despacho en {aduana.title()}: código DEAP declarado")
+        else:
+            self.agregar(3, "DEAP", "error", f"Despacho en {aduana.title()} sin el código DEAP",
+                         "En Fray Bentos, Salto y Colonia hay que declarar el DEAP.")
 
     def r_04_subregimen(self):
         # 1C: libros desde depósito

@@ -13,6 +13,7 @@ Resultados: **error** (probable error con impacto en tributos o validez), **adve
 | 1 | El importador del DUA es el de las facturas (nombre o RUT). | Sí |
 | 2 | La condición de compra / Incoterm del DUA coincide con cada factura. Cada factura tiene condición real y condición de factura: en aéreo la real es FCA aunque el proveedor ponga FOB o EXW, y se declaran las dos. El cabezal lleva la de la factura. | Sí (cabezal vs facturas y texto de la factura) |
 | 3 | La frontera o aduana de ingreso coincide con el documento de transporte. | Parcial |
+| 3b | Despachos en Fray Bentos, Salto y Colonia: tiene que estar declarado el código DEAP en el cabezal. | Sí: error si falta |
 | 4 | Tipo de importación y subrégimen corresponden a la operación (Doc.Carga 32 ↔ subrégimen 12; con libros, 1C). | Sí |
 | 5 | La moneda del DUA es la de la factura de origen. Solo cuenta la moneda pegada a un importe, rotulada (Currency: EUR) o en el total en letras; «EURO» suelto puede ser un nombre. | Sí (con OCR queda «revisar») |
 | 6 | Números y fechas de factura coinciden con los documentos. | Sí (con OCR; si no se lee, queda «revisar») |

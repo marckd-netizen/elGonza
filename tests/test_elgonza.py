@@ -374,3 +374,14 @@ def test_euro_suelto_no_es_moneda():
     assert (5, "error") not in [(c.regla, c.resultado) for c in Revision(b, [doc], clientes=[]).ejecutar()]
     doc.texto = "INVOICE CCC026040901 TOTAL EUR 1.000,00"
     assert (5, "error") in [(c.regla, c.resultado) for c in Revision(b, [doc], clientes=[]).ejecutar()]
+
+
+def test_deap_en_fray_bentos_salto_colonia():
+    from elgonza.borrador import Borrador
+    b = Borrador(aduana="6 FRAY BENTOS")
+    b.certificados = [("DEAP", "210778700011-0118")]
+    assert (3, "error") not in [(c.regla, c.resultado) for c in Revision(b, [], clientes=[]).ejecutar()]
+    b.certificados = []
+    assert [c for c in Revision(b, [], clientes=[]).ejecutar() if c.regla == 3 and c.resultado == "error" and "DEAP" in c.titulo]
+    b.aduana = "1 MONTEVIDEO"
+    assert not [c for c in Revision(b, [], clientes=[]).ejecutar() if "DEAP" in c.titulo]
