@@ -315,6 +315,7 @@ def _alineadas(filas_nums, tol=4):
     return es_columna
 
 
+MONEDA = re.compile(r"(?i)US?\$|\$|USD|EUR|€|R\$|U\$S")
 UNIDAD_INICIAL = re.compile(r"^(UN|UND|UNID|PCS|PC|PZS|KGS?|M2|MTS?|SETS?|ROLLS?)\s+(?=\S)")
 NCM_EN_TEXTO = re.compile(r"(?i)\bNCM\b\s*[:.]?\s*(\d{4}\.?\d{2}\.?\d{2}(?:\.?\d{2})?)")
 CODIGO_EN_TEXTO = re.compile(r"-\s*([A-Z]*\d{5,}[A-Z0-9]*)\b")
@@ -348,6 +349,9 @@ def leer_items(renglones):
     encabezados = [r for r in renglones if r.pagina == primera.pagina and primera.top - 60 <= r.top < primera.top]
     ancho_col = _columna(encabezados, r"WIDTH|ANCHO")
     alto = _interlineado([f[0].top for f in filas])
+    renglon = {}
+    for pg in {r.pagina for r in renglones}:
+        renglon[pg] = _interlineado([r.top for r in renglones if r.pagina == pg])
     usados = {id(f[0]) for f in filas} | qlineas
     es_columna = _alineadas([f[1] for f in filas])
     lineas = []
@@ -355,7 +359,8 @@ def leer_items(renglones):
         pal = r.palabras
         # el texto termina donde empiezan las columnas de números (las que se alinean entre renglones)
         corte = len(pal)
-        while corte > 0 and pal[corte - 1].es_numero and (es_columna(pal[corte - 1]) or pal[corte - 1] in (q, nums[j], nums[k])):
+        while corte > 0 and (MONEDA.fullmatch(pal[corte - 1].texto) or pal[corte - 1].es_numero and (
+                es_columna(pal[corte - 1]) or pal[corte - 1] in (q, nums[j], nums[k]))):
             corte -= 1
         nro, inicio = "", 0
         if pal and pal[0].es_numero and re.fullmatch(r"\d{1,4}", pal[0].texto) and pal[0] is not q \
@@ -370,12 +375,24 @@ def leer_items(renglones):
             if id(o) in usados or o.pagina != r.pagina or TOTAL.search(o.texto):
                 continue
             d = o.top - r.top
-            if not (0 < abs(d) < alto * 0.6) or any(p.es_numero and p.x1 > limite for p in o.palabras):
+            if not (0 < abs(d) < max(alto * 0.6, renglon[r.pagina] * 1.15)) \
+                    or any(p.es_numero and p.x1 > limite for p in o.palabras):
                 continue
             otras = [abs(o.top - f[0].top) for f in filas if f[0] is not r and f[0].pagina == r.pagina]
             if otras and min(otras) < abs(d):
                 continue
-            (arriba if d < 0 else abajo).append([p for p in o.palabras if p.x1 <= limite])
+            (arriba if d < 0 else abajo).append((o, [p for p in o.palabras if p.x1 <= limite]))
+        # un título de grupo («CHECK VALVE») no es parte del ítem: se toma lo de arriba solo si el ítem también
+        # sigue abajo o si lo de arriba está pegado a otro renglón
+        if arriba and not abajo:
+            arriba = [(o, p) for o, p in arriba if any(0 < o.top - x.top <= renglon[o.pagina] * 1.5
+                                                       for x in renglones if x.pagina == o.pagina
+                                                    and id(x) not in qlineas)]
+        # abajo, igual: un título del grupo siguiente queda más pegado a lo que tiene debajo que a este ítem
+        abajo = [(o, p) for o, p in abajo if not any(0 < x.top - o.top <= o.top - r.top
+                                                    for x in renglones if x.pagina == o.pagina
+                                                    and id(x) not in qlineas)]
+        arriba, abajo = [p for _, p in arriba], [p for _, p in abajo]
         codigo, desc = _codigo_y_descripcion(arriba + [texto_fila] + abajo)
         unidad = _unidad(encabezados, q.x0, q.x1) if q in nums else None
         m = UNIDAD_INICIAL.match(desc)
@@ -499,6 +516,12 @@ def pesos_por_item(renglones, lineas, obs):
         if tot and abs(suma - tot) > 0.5:
             obs.append(f"Packing list: los {nombre} de los productos suman {suma:,.3f} y el total dice {tot:,.3f}.")
     bultos = _total_en_texto(r"(?i)(?:TOTAL\s+DE\s+BULTOS|TOTAL\s+PACKAGES|TOTAL\s+CAJAS|SAY\s+TOTAL)", texto, dec)
+    if not bultos:
+        m = re.search(r"(?i)\b(\d[\d.,]*)\s*(?:CARTONS|CTNS|PACKAGES|PKGS|BULTOS|CAJAS|BOXES)\b", texto)
+        bultos = _valor(m.group(1), dec) if m else None
+    m = re.search(r"(?i)^.*\bPALLETS?\b.*$", texto, re.M)
+    if m and not TOTAL.search(m.group(0)):
+        obs.append(f"Embalaje: «{m.group(0).strip()}». Revisar si los bultos del DUA son las cajas o los pallets.")
     return neto_t or round(suma_n, 3), bruto_t or round(suma_b, 3), bultos
 
 

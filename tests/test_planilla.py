@@ -178,3 +178,38 @@ def test_factura_sin_numerar_cantidad_arriba(tmp_path):
     assert [l.ncm for l in f.lineas] == ["9403.60.00.00", "9403.50.00.00"]
     assert "NCM de la factura" in f.lineas[0].motivo
     assert any("proforma" in o for o in f.observaciones)
+
+
+def test_ncm_valvulas():
+    casos = {
+        "BRASS UNIVERSAL CHECK VALVE 3/4\"": "8481.30.00.90",
+        "BRASS DOUBLE GUIDE FOOT VALVE 3\"": "8481.30.00.90",
+        "BRASS SAFETY VALVE 1/2\"": "8481.40.00.90",
+        "BRASS BALL VALVE 1030 S FF PRESS": "8481.80.95.00",
+        "GAS VALVE WITH ALUMINIUM YELLOW BUTTERFLY HANDLE": "8481.80.95.00",
+        "SS304BALL Valve with IRON HANDLE": "8481.80.95.00",
+        "BRASS BALL BIBCOCKS 1/2 x 3/4": "8481.80.19.00",
+    }
+    for desc, esperado in casos.items():
+        assert sugerir("", desc)[0] == esperado, desc
+    assert sugerir("", "BRASS SAFETY VALVE")[1] == "VALVULA DE SEGURIDAD DE LATON"
+
+
+def test_titulo_de_grupo_no_entra_en_la_descripcion(tmp_path):
+    enc = [(250, 60, "COMMERCIAL INVOICE"), (380, 90, "INVOICE NO.: SAS-1"), (60, 140, "Art"), (160, 140, "Description"),
+           (400, 140, "PCS"), (450, 140, "USD/PC"), (510, 140, "USD")]
+    filas = [(160, 160, "CHECK VALVE"),
+             (60, 169, "VV01"), (160, 169, "BRASS CHECK VALVE"), (400, 169, "144"), (440, 169, "$"), (450, 169, "2.38"),
+             (500, 169, "$"), (510, 169, "342.72"),
+             (60, 178, "VV02"), (160, 178, "BRASS CHECK VALVE"), (400, 178, "216"), (440, 178, "$"), (450, 178, "3.09"),
+             (500, 178, "$"), (510, 178, "667.44"),
+             (160, 188, "BRASS VALVE"),
+             (160, 198, "BRASS BALL VALVE 1030 S FF"),
+             (60, 206, "V03"), (160, 206, "COATED FLAT HANDLE"), (400, 206, "10"), (440, 206, "$"), (450, 206, "2.01"),
+             (500, 206, "$"), (510, 206, "20.10"),
+             (160, 214, "SAS / ON-OFF"),
+             (60, 240, "TOTAL:"), (400, 240, "370"), (510, 240, "1,030.26")]
+    _pdf(tmp_path / "inv.pdf", [enc + filas])
+    (f,) = leer_carpeta(tmp_path, usar_ocr=False)
+    assert [l.descripcion for l in f.lineas] == [
+        "BRASS CHECK VALVE", "BRASS CHECK VALVE", "BRASS BALL VALVE 1030 S FF COATED FLAT HANDLE SAS / ON-OFF"]

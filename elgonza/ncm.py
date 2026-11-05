@@ -40,7 +40,7 @@ def descripcion_completa(ncm):
     """Texto de la posición con sus niveles superiores: «Autoadhesivos › Los demás»."""
     t = arancel()
     partes = []
-    for k in (ncm[:7], ncm[:10], ncm):
+    for k in (ncm[:7], ncm[:9], ncm[:10], ncm):
         p = t.get(k)
         if p and (not partes or p.descripcion != partes[-1]):
             partes.append(p.descripcion.lstrip("- ").rstrip(":"))
@@ -175,7 +175,46 @@ def _por_reglas(codigo, descripcion, ancho_mm):
         if mat == "" and re.search(r"(?i)acrylic", d):
             motivo += " «Acrylic» se toma como el adhesivo, no como el material del film."
         return _verificar(ncm, _desc_es(d, base), motivo)
+    for regla in REGLAS:
+        if re.search(regla[0], d, re.I) and not (len(regla) > 4 and re.search(regla[4], d, re.I)):
+            ncm, base, motivo = regla[1], regla[2], regla[3]
+            mat = next((es for patron, es in MATERIALES if re.search(patron, d, re.I)), "")
+            return _verificar(ncm, f"{base} {mat}".strip(), motivo)
     return "", "", "Sin sugerencia: agregá el producto a antecedentes_ncm.txt para la próxima vez."
+
+
+# Reglas por palabras de la descripción: (patrón, NCM, descripción en español, motivo[, excepto]).
+# Van de lo más específico a lo más general; gana la primera que coincide.
+REGLAS = [
+    # 84.81 grifería y válvulas
+    (r"pressure reduc|reductora de presi", "8481.10.00.90", "VALVULA REDUCTORA DE PRESION",
+     "Válvula reductora de presión (8481.10). Si es para vehículos va en .10 y si es para garrafas de GLP en .20."),
+    (r"check valve|foot valve|non[- ]?return|swing check|retenci[oó]n|v[aá]lvula de pie", "8481.30.00.90",
+     "VALVULA DE RETENCION", "Válvula de retención (8481.30); las válvulas de pie también lo son. "
+     "Si es para vehículos va en .10 y si es para garrafas de GLP en .20."),
+    (r"safety valve|relief valve|v[aá]lvula de (seguridad|alivio)", "8481.40.00.90", "VALVULA DE SEGURIDAD",
+     "Válvula de alivio o seguridad (8481.40)."),
+    (r"solenoid", "8481.80.92.90", "VALVULA SOLENOIDE", "Válvula solenoide (8481.80.92)."),
+    (r"butterfly valve|v[aá]lvula mariposa", "8481.80.97.90", "VALVULA MARIPOSA", "Válvula mariposa (8481.80.97).",
+     r"butterfly handle"),
+    (r"gate valve|v[aá]lvula esclusa", "8481.80.93.00", "VALVULA ESCLUSA", "Válvula esclusa (8481.80.93)."),
+    (r"globe valve|v[aá]lvula globo", "8481.80.94.00", "VALVULA GLOBO", "Válvula globo (8481.80.94)."),
+    (r"bibcock|faucet|\btap\b|canilla|grifo", "8481.80.19.00", "CANILLA",
+     "Canilla o grifo (8481.80.1, de los tipos usados en baños o cocinas). Si es de jardín o industrial, "
+     "va en 8481.80.99.90."),
+    (r"ball ?valve|mini valve|gas valve|v[aá]lvula esf[eé]rica|llave de paso", "8481.80.95.00", "VALVULA ESFERICA",
+     "Válvula esférica (8481.80.95). Si es de gas para artefactos domésticos va en 8481.80.3; las llaves de paso "
+     "de gas para cañerías siguen siendo esféricas."),
+    (r"\bvalves?\b|v[aá]lvula", "8481.80.99.90", "VALVULA", "Válvula sin tipo reconocido: 8481.80.99 (las demás). "
+     "Revisar el tipo (retención, esférica, esclusa, etc.)."),
+]
+MATERIALES = [
+    (r"brass|lat[oó]n", "DE LATON"),
+    (r"\bSS ?30[0-9]|stainless|inoxidable", "DE ACERO INOXIDABLE"),
+    (r"bronze|bronce", "DE BRONCE"),
+    (r"\bPVC\b", "DE PVC"),
+    (r"cast iron|hierro fundido", "DE HIERRO FUNDIDO"),
+]
 
 
 def _verificar(ncm, desc_es, motivo):
