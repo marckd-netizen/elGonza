@@ -47,6 +47,13 @@ def revisar_carpeta(carpeta, salida=None, usar_ocr=True, avisar=print, mega6=Non
     if mega6 and not docs:
         return None, f"Mega6 no tiene documentos RADE para la carpeta {b.carpeta}"
     controles = Revision(b, docs).ejecutar()
+    try:
+        from . import historial
+        n = historial.aprender(b, docs)
+        if n:
+            avisar(f"Aprendí {n} código(s) de producto con su NCM para sugerirlos en próximas facturas.")
+    except Exception:
+        pass
     salida = Path(salida) if salida else carpeta_informes()
     salida.mkdir(parents=True, exist_ok=True)
     ruta = salida / f"revision-{b.carpeta}.html"
@@ -79,12 +86,21 @@ def main(argv=None):
     ap.add_argument("--carpeta", dest="nro", help="Número de carpeta: toma el borrador que generó Mega6 (respaldo\\Borrador<nro>.pdf) y sus documentos")
     ap.add_argument("--planilla", metavar="CARPETA", help="Factura a planilla: arma la planilla de ítems con NCM sugerido "
                     "a partir de las facturas y packing lists de la carpeta (paso previo al borrador)")
+    ap.add_argument("--formato", choices=["xlsx", "ods", "ambos"],
+                    help="Formato de la planilla: xlsx (Excel), ods (OpenOffice) o ambos")
+    ap.add_argument("--antecedentes", action="store_true",
+                    help="Arma o actualiza la base de antecedentes de NCM con los borradores de Mega6")
     ap.add_argument("--version", action="version", version=__version__)
     args = ap.parse_args(argv)
+    if args.antecedentes:
+        from . import historial
+        n = historial.actualizar(avisar=print)
+        print(f"Base de antecedentes: {n} borradores leídos -> {historial.ruta_base()}")
+        return 0
     if args.planilla:
         from .planilla import planilla_de_carpeta
         ruta, res = planilla_de_carpeta(args.planilla, args.salida and Path(args.salida) / f"Planilla {Path(args.planilla).name}.xlsx",
-                                        not args.sin_ocr)
+                                        not args.sin_ocr, formato=args.formato)
         if ruta is None:
             print(res)
             return 1
@@ -204,7 +220,7 @@ def ventana():
         from .planilla import planilla_de_carpeta
         try:
             escribir(f"— Factura a planilla: {Path(carpeta).name}")
-            ruta, res = planilla_de_carpeta(carpeta, avisar=escribir)
+            ruta, res = planilla_de_carpeta(carpeta, avisar=escribir, formato=formato.get())
             if ruta is None:
                 escribir(res)
                 return
@@ -215,7 +231,7 @@ def ventana():
             escribir(f"  Planilla: {ruta}")
             abrir(ruta)
         except PermissionError:
-            escribir("No pude guardar la planilla: ¿está abierta en Excel? Cerrala y volvé a probar.")
+            escribir("No pude guardar la planilla: ¿está abierta en Excel u OpenOffice? Cerrala y volvé a probar.")
         except Exception as e:
             escribir(f"Error: {e}")
         finally:
@@ -245,12 +261,41 @@ def ventana():
     previo.pack(anchor="w", pady=(0, 8), fill="x")
     tk.Label(previo, text="Antes del borrador:").pack(side="left")
     tk.Button(previo, text="Factura a planilla…", command=elegir_planilla, padx=10, pady=4).pack(side="left", padx=8)
+    from .planilla import formato_preferido, guardar_formato
+    nombres = {"xlsx": "Excel (.xlsx)", "ods": "OpenOffice (.ods)", "ambos": "Excel y OpenOffice"}
+    formato = tk.StringVar(value=formato_preferido())
+    etiqueta = tk.StringVar(value=nombres[formato.get()])
+
+    def cambiar_formato(nombre):
+        f = next(k for k, v in nombres.items() if v == nombre)
+        formato.set(f)
+        guardar_formato(f)
+    tk.OptionMenu(previo, etiqueta, *nombres.values(), command=cambiar_formato).pack(side="left", padx=(0, 8))
+
+    def trabajar_base():
+        from . import historial
+        try:
+            n = historial.actualizar(avisar=escribir)
+            if n == 0 and not historial.existe():
+                escribir("No encontré borradores en Permiso6\\respaldo. Indicá la ruta de Mega6 en ELGONZA_MEGA6.")
+            else:
+                escribir(f"Base de antecedentes al día ({n} borradores nuevos leídos). La uso al sugerir el NCM.")
+        except Exception as e:
+            escribir(f"Error armando la base de antecedentes: {e}")
+        finally:
+            raiz.after(0, lambda: boton.configure(state="normal"))
+
+    def armar_base():
+        boton.configure(state="disabled")
+        threading.Thread(target=trabajar_base, daemon=True).start()
 
     def abrir_antecedentes():
         from .ncm import antecedentes, ruta_antecedentes
         antecedentes()  # lo crea con ejemplos si no existe
         abrir(ruta_antecedentes())
     tk.Button(previo, text="Antecedentes NCM…", command=abrir_antecedentes, padx=10, pady=4).pack(side="left")
+    tk.Button(previo, text="Base de antecedentes (Mega6)", command=armar_base, padx=10, pady=4).pack(side="left",
+                                                                                                    padx=8)
     log.pack(fill="both", expand=True)
     raiz.mainloop()
     return 0

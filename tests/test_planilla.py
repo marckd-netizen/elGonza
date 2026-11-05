@@ -11,6 +11,9 @@ from elgonza.planilla import _agrupar, _leer_fecha, leer_carpeta, planilla_de_ca
 @pytest.fixture(autouse=True)
 def sin_antecedentes(tmp_path, monkeypatch):
     monkeypatch.setattr(modulo_ncm, "ruta_antecedentes", lambda: tmp_path / "antecedentes_ncm.txt")
+    monkeypatch.setenv("LOCALAPPDATA", str(tmp_path / "local"))
+    from elgonza import historial
+    historial._cache.clear()
 
 
 def _pdf(ruta, paginas):
@@ -213,3 +216,65 @@ def test_titulo_de_grupo_no_entra_en_la_descripcion(tmp_path):
     (f,) = leer_carpeta(tmp_path, usar_ocr=False)
     assert [l.descripcion for l in f.lineas] == [
         "BRASS CHECK VALVE", "BRASS CHECK VALVE", "BRASS BALL VALVE 1030 S FF COATED FLAT HANDLE SAS / ON-OFF"]
+
+
+def _base_de_prueba(tmp_path, monkeypatch):
+    """Respaldo de Mega6 con dos borradores: una cámara y una válvula esférica de latón."""
+    from pathlib import Path
+    from elgonza import historial
+    monkeypatch.setenv("LOCALAPPDATA", str(tmp_path / "local"))
+    historial._cache.clear()
+    respaldo = tmp_path / "Permiso6" / "respaldo"
+    respaldo.mkdir(parents=True)
+    texto = (Path(__file__).parent / "datos" / "borrador_aereo.txt").read_text(encoding="utf-8")
+    (respaldo / "Borrador900001.txt").write_text(texto, encoding="utf-8")
+    valvula = (texto.replace("8525.89.29.00", "8481.80.95.00")
+               .replace("CAMARA PARA LINEA DE ENVASADO EN FRIGORIFICO", "VALVULA ESFERICA DE LATON DE 1/2 PULGADA")
+               .replace("Carpeta : 900001", "Carpeta : 900002"))
+    (respaldo / "Borrador900002.txt").write_text(valvula, encoding="utf-8")
+    return historial, tmp_path / "Permiso6"
+
+
+def test_base_de_antecedentes_de_mega6(tmp_path, monkeypatch):
+    historial, raiz = _base_de_prueba(tmp_path, monkeypatch)
+    assert not historial.existe()
+    assert historial.actualizar(raiz) == 2
+    assert historial.existe()
+    assert historial.actualizar(raiz) == 0          # solo lee los nuevos o cambiados
+    ncm, desc, motivo, puntaje = historial.buscar("", "BRASS BALL VALVE 1/2\"")
+    assert ncm == "8481.80.95.00" and "VALVULA ESFERICA" in desc and "900002" in motivo
+    assert historial.buscar("", "DIGITAL CAMERA FOR PACKAGING LINE")[0] == "8525.89.29.00"
+    assert historial.importador_en_texto("SOLD TO: IMPORTADORA EJEMPLO S.A.\nMONTEVIDEO") == "IMPORTADORA EJEMPLO S.A."
+    # sugerir usa la base cuando no hay reglas ni NCM en la factura
+    ncm, desc_es, motivo = sugerir("", "DIGITAL CAMERA FOR PACKAGING LINE")
+    assert ncm == "8525.89.29.00" and "Mega6" in motivo
+
+
+def test_aprende_codigos_al_revisar(tmp_path, monkeypatch):
+    from types import SimpleNamespace
+    from elgonza.borrador import parsear
+    historial, raiz = _base_de_prueba(tmp_path, monkeypatch)
+    historial.actualizar(raiz)
+    b = parsear((raiz / "respaldo" / "Borrador900002.txt").read_text(encoding="utf-8"))
+    pdf = tmp_path / "factura.pdf"
+    _pdf(pdf, [_factura("612", "21/09/2026",
+                        [_fila(180, "1", "VX-77120", "Brass ball valve 1/2", "", "100.00", "41.795", "4,179.50")])])
+    doc = SimpleNamespace(tipo="factura", ruta=pdf, texto="COMMERCIAL INVOICE No. 612")
+    assert historial.aprender(b, [doc]) == 1
+    ncm, desc, motivo, puntaje = historial.buscar("VX-77120", "algo distinto")
+    assert ncm == "8481.80.95.00" and puntaje == 1.0 and "VX-77120" in motivo
+
+
+def test_planilla_en_ods(tmp_path):
+    import zipfile
+    carpeta = tmp_path / "despacho"
+    carpeta.mkdir()
+    _carpeta(carpeta)
+    ruta, _ = planilla_de_carpeta(carpeta, formato="ambos", avisar=lambda *_: None)
+    assert ruta.suffix == ".xlsx" and ruta.with_suffix(".ods").exists()
+    with zipfile.ZipFile(ruta.with_suffix(".ods")) as z:
+        assert z.namelist()[0] == "mimetype" and z.read("mimetype") == b"application/vnd.oasis.opendocument.spreadsheet"
+        contenido = z.read("content.xml").decode()
+    assert 'table:name="Hoja1"' in contenido and 'table:name="Notas"' in contenido and "NCM SUGERIDO" in contenido
+    ruta, _ = planilla_de_carpeta(carpeta, formato="ods", avisar=lambda *_: None)
+    assert ruta.suffix == ".ods"

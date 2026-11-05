@@ -120,12 +120,21 @@ def aperturas(ncm8):
     return sorted(k for k in arancel() if len(k) == 13 and k.replace(".", "").startswith(d))
 
 
-def sugerir(codigo, descripcion, ancho_mm=None, ncm_factura=""):
+def sugerir(codigo, descripcion, ancho_mm=None, ncm_factura="", importador="", proveedor=""):
     """(ncm, descripción en español, motivo). ncm vacío si no hay sugerencia."""
     for clave, ncm, desc_es in antecedentes():
         if (_norm(clave) and _norm(clave) == _norm(codigo)) or \
                 (not re.fullmatch(r"[A-Z0-9\-#()./]+", clave) and clave.lower() in (descripcion or "").lower()):
             return _verificar(ncm, desc_es, f"Antecedente: «{clave}» → {ncm}.")
+    try:
+        from . import historial
+        previo = historial.buscar(codigo, descripcion, importador, proveedor)
+    except Exception:
+        previo = None
+    if previo and previo[3] >= 1.0 and previo[0] in arancel():
+        return _verificar(previo[0], previo[1], previo[2])
+    if previo and not ncm_factura and previo[3] >= 0.6 and previo[0] in arancel():
+        return _verificar(previo[0], previo[1], previo[2])
     if ncm_factura:
         d = re.sub(r"\D", "", ncm_factura)
         legible = f"{d[:4]}.{d[4:6]}.{d[6:8]}"
@@ -144,6 +153,8 @@ def sugerir(codigo, descripcion, ancho_mm=None, ncm_factura=""):
     else:
         aviso = ""
     ncm, desc_es, motivo = _por_reglas(codigo, descripcion, ancho_mm)
+    if not ncm and previo and previo[3] >= 0.3 and previo[0] in arancel():
+        return _verificar(previo[0], previo[1], aviso + previo[2] + " Parecido débil: verificar.")
     return ncm, desc_es, aviso + motivo
 
 

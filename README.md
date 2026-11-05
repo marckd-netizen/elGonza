@@ -24,7 +24,9 @@ Paso previo a la revisión: arma la planilla de ítems para cargar el DUA a part
 
 1. Guardar en una carpeta las facturas en PDF (con o sin packing list adentro, o el packing en otro PDF).
 2. **Factura a planilla…** y elegir la carpeta. Desde la línea de comandos: `elgonza --planilla "C:\ruta\carpeta"`.
-3. Se guarda `Planilla <carpeta>.xlsx` en la misma carpeta y se abre.
+3. Se guarda `Planilla <carpeta>.xlsx` en la misma carpeta y se abre. Al lado del botón se elige el formato:
+   Excel (.xlsx), OpenOffice (.ods) o los dos; queda guardado para la próxima vez. Por línea de comandos:
+   `--formato xlsx|ods|ambos`.
 
 Columnas: ITEM, CANTIDAD, VALOR, NCM (vacía, para el NCM definitivo), DESCRIPCION (en español), NETO, BRUTO,
 UNIDAD MEDIDA, CODIGO FACTURA, DESCRIPCION FACTURA y **NCM SUGERIDO** a 10 dígitos. Si en la carpeta hay varias
@@ -42,6 +44,14 @@ facturas, después de ITEM (correlativo de todas) van FACTURA (número) y FECHA 
   por producto: `código o texto | NCM | descripción`) y si no, de reglas por tipo de mercadería (por ahora papel y
   plástico autoadhesivos: 4811.41 y 3919, según ancho y material). Se verifica contra el Arancel Nacional
   (febrero 2025, en `elgonza/datos/arancel.tsv`) y la hoja **Notas** muestra el motivo y las tasas AEC, E/Z e I/Z.
+- **Base de antecedentes (Mega6)**: el botón lee todos los borradores de `Permiso6\respaldo` (la primera vez tarda
+  unos minutos; después solo los nuevos) y guarda importador, proveedor, descripción y NCM de cada ítem en
+  `%LOCALAPPDATA%\elGonza\antecedentes.sqlite` (también `elgonza --antecedentes`). Al armar una planilla se busca
+  la descripción más parecida (las facturas en inglés se traducen con un glosario), con más peso si es del mismo
+  importador o proveedor. Además, cada revisión de un despacho aprende el **código de producto** de las facturas con
+  el NCM declarado (por las referencias «It:1 al 3/Fac. 976» del borrador), y ese código se sugiere directo la
+  próxima vez. Orden: antecedentes_ncm.txt → código ya declarado → NCM de la factura → descripción parecida de
+  Mega6 → reglas → parecido débil (marcado «verificar»).
 - La hoja **Notas** también avisa descuentos o comisiones restados en la factura, totales que no cierran y
   diferencias entre factura y packing list.
 

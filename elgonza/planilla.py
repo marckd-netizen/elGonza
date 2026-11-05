@@ -726,9 +726,16 @@ def leer_carpeta(carpeta, usar_ocr=True, avisar=None):
                                                                    f.observaciones)
         else:
             f.observaciones.append("No encontré el packing list de esta factura: neto y bruto quedan vacíos.")
+        importador = proveedor = ""
+        try:
+            from . import historial
+            importador = historial.importador_en_texto(getattr(f, "texto", ""))
+            proveedor = historial.proveedor_en_texto(getattr(f, "texto", ""))
+        except Exception:
+            pass
         for l in f.lineas:
             l.ncm, l.descripcion_es, l.motivo = sugerir(l.codigo, l.descripcion, l.ancho_mm,
-                                                          getattr(l, "ncm_factura", ""))
+                                                          getattr(l, "ncm_factura", ""), importador, proveedor)
     return facturas
 
 
@@ -837,15 +844,61 @@ def generar_planilla(facturas, ruta):
                "por código entre los ítems de la factura."])
     ns.append(["La columna NCM SUGERIDO es una sugerencia: hay que confirmarla antes de cargar el DUA."])
     ruta = Path(ruta)
-    wb.save(ruta)
+    if ruta.suffix.lower() == ".ods":
+        from .ods import guardar_ods
+        guardar_ods(wb, ruta)
+    else:
+        wb.save(ruta)
     return ruta
 
 
-def planilla_de_carpeta(carpeta, salida=None, usar_ocr=True, avisar=print):
-    """Lee la carpeta y guarda la planilla. Devuelve (ruta, facturas) o (None, mensaje)."""
+FORMATOS = {"xlsx": [".xlsx"], "ods": [".ods"], "ambos": [".xlsx", ".ods"]}
+
+
+def formato_preferido():
+    """Formato elegido la última vez en la ventana: xlsx (Excel), ods (OpenOffice) o ambos."""
+    import json
+    try:
+        f = json.loads(_ruta_preferencias().read_text(encoding="utf-8")).get("formato_planilla")
+        return f if f in FORMATOS else "xlsx"
+    except Exception:
+        return "xlsx"
+
+
+def guardar_formato(formato):
+    import json
+    try:
+        r = _ruta_preferencias()
+        datos = json.loads(r.read_text(encoding="utf-8")) if r.exists() else {}
+        datos["formato_planilla"] = formato
+        r.write_text(json.dumps(datos), encoding="utf-8")
+    except Exception:
+        pass
+
+
+def _ruta_preferencias():
+    import os
+    d = Path(os.environ.get("LOCALAPPDATA") or Path.home() / ".cache") / "elGonza"
+    d.mkdir(parents=True, exist_ok=True)
+    return d / "preferencias.json"
+
+
+def planilla_de_carpeta(carpeta, salida=None, usar_ocr=True, avisar=print, formato=None):
+    """Lee la carpeta y guarda la planilla (xlsx, ods o ambos). Devuelve (ruta, facturas) o (None, mensaje);
+    con «ambos», ruta es la del .xlsx y el .ods queda al lado."""
     carpeta = Path(carpeta)
+    try:
+        from . import historial
+        if historial.existe():
+            historial.actualizar(avisar=avisar)
+    except Exception:
+        pass
     facturas = leer_carpeta(carpeta, usar_ocr=usar_ocr, avisar=avisar)
     if not facturas:
         return None, f"No encontré facturas con ítems en {carpeta}"
-    ruta = Path(salida) if salida else carpeta / f"Planilla {carpeta.name}.xlsx"
-    return generar_planilla(facturas, ruta), facturas
+    base = Path(salida) if salida else carpeta / f"Planilla {carpeta.name}.xlsx"
+    rutas = [generar_planilla(facturas, base.with_suffix(ext))
+             for ext in FORMATOS.get(formato or formato_preferido(), [".xlsx"])]
+    for r in rutas[1:]:
+        avisar(f"  También en {r.name}")
+    return rutas[0], facturas
