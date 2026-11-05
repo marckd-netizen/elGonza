@@ -139,6 +139,7 @@ class Linea:
     descripcion_es: str = ""
     motivo: str = ""
     y: float = 0
+    origen: str = ""
 
 
 @dataclass
@@ -274,6 +275,67 @@ def _unidad(encabezados, x0, x1):
     return mejor[1] if mejor else "UNIDADES"
 
 
+# --- país de origen -----------------------------------------------------------
+PAISES = {
+    "CHINA": "CHINA", "PRC": "CHINA", "P.R.C": "CHINA", "HONG KONG": "HONG KONG", "TAIWAN": "TAIWAN",
+    "BRAZIL": "BRASIL", "BRASIL": "BRASIL", "ARGENTINA": "ARGENTINA", "PARAGUAY": "PARAGUAY", "CHILE": "CHILE",
+    "BOLIVIA": "BOLIVIA", "PERU": "PERU", "COLOMBIA": "COLOMBIA", "ECUADOR": "ECUADOR", "VENEZUELA": "VENEZUELA",
+    "MEXICO": "MEXICO", "USA": "ESTADOS UNIDOS", "U.S.A": "ESTADOS UNIDOS", "UNITED STATES": "ESTADOS UNIDOS",
+    "ESTADOS UNIDOS": "ESTADOS UNIDOS", "CANADA": "CANADA", "SPAIN": "ESPAÑA", "ESPAÑA": "ESPAÑA",
+    "ESPANA": "ESPAÑA", "PORTUGAL": "PORTUGAL", "ITALY": "ITALIA", "ITALIA": "ITALIA", "FRANCE": "FRANCIA",
+    "FRANCIA": "FRANCIA", "GERMANY": "ALEMANIA", "ALEMANIA": "ALEMANIA", "DEUTSCHLAND": "ALEMANIA",
+    "UNITED KINGDOM": "REINO UNIDO", "ENGLAND": "REINO UNIDO", "U.K": "REINO UNIDO", "NETHERLANDS": "PAISES BAJOS",
+    "HOLLAND": "PAISES BAJOS", "BELGIUM": "BELGICA", "SWITZERLAND": "SUIZA", "AUSTRIA": "AUSTRIA",
+    "POLAND": "POLONIA", "CZECH REPUBLIC": "REPUBLICA CHECA", "TURKEY": "TURQUIA", "TURKIYE": "TURQUIA",
+    "SWEDEN": "SUECIA", "DENMARK": "DINAMARCA", "FINLAND": "FINLANDIA", "NORWAY": "NORUEGA", "ISRAEL": "ISRAEL",
+    "INDIA": "INDIA", "PAKISTAN": "PAKISTAN", "BANGLADESH": "BANGLADESH", "VIETNAM": "VIETNAM",
+    "VIET NAM": "VIETNAM", "THAILAND": "TAILANDIA", "MALAYSIA": "MALASIA", "INDONESIA": "INDONESIA",
+    "PHILIPPINES": "FILIPINAS", "SINGAPORE": "SINGAPUR", "KOREA": "COREA DEL SUR", "SOUTH KOREA": "COREA DEL SUR",
+    "JAPAN": "JAPON", "JAPON": "JAPON", "AUSTRALIA": "AUSTRALIA", "NEW ZEALAND": "NUEVA ZELANDA",
+    "SOUTH AFRICA": "SUDAFRICA", "EGYPT": "EGIPTO", "URUGUAY": "URUGUAY", "URUGUAI": "URUGUAY",
+}
+_PAIS = re.compile(r"(?<![A-Z])(" + "|".join(re.escape(k) for k in sorted(PAISES, key=len, reverse=True))
+                   + r")(?![A-Z])")
+# donde empiezan los datos del comprador: lo de arriba es del proveedor
+COMPRADOR = re.compile(r"(?i)\b(SOLD\s+TO|BILL\s+TO|SHIP\s+TO|BUYER|CONSIGNEE|MESSRS|IMPORTER|CUSTOMER|"
+                       r"CLIENTE|COMPRADOR|DESTINATARIO|TO\s*:)")
+
+
+def pais_en(texto):
+    m = _PAIS.search(_sin_tildes_mayus(texto))
+    return PAISES[m.group(1)] if m else ""
+
+
+def _sin_tildes_mayus(t):
+    import unicodedata
+    return "".join(c for c in unicodedata.normalize("NFD", t or "") if unicodedata.category(c) != "Mn").upper() \
+        .replace("ESPANA", "ESPAÑA")
+
+
+def origen_expreso(texto):
+    """País del origen dicho expresamente en el texto («MADE IN CHINA», «COUNTRY OF ORIGIN: BRAZIL»), sin contar
+    el puerto de origen."""
+    t = _sin_tildes_mayus(texto)
+    for m in re.finditer(r"(?<!PORT )(?<!PUERTO DE )(?<!PORTO DE )(COUNTRY OF ORIGIN|ORIGIN OF (?:THE )?GOODS|"
+                         r"PAIS DE ORIGEN|MADE IN|ORIGEN|ORIGIN)\b[^A-Z\n]{0,4}([A-Z .]{2,30})", t):
+        p = _PAIS.match(m.group(2).strip())
+        if p:
+            return PAISES[p.group(1)]
+    return ""
+
+
+def pais_del_proveedor(texto):
+    """País de la dirección del proveedor: el primero que aparece antes de los datos del comprador (sin contar
+    Uruguay); si no, el primero de todo el documento que no sea Uruguay."""
+    t = _sin_tildes_mayus(texto)
+    corte = COMPRADOR.search(t)
+    for parte in ([t[:corte.start()]] if corte else []) + [t]:
+        for m in _PAIS.finditer(parte):
+            if PAISES[m.group(1)] != "URUGUAY":
+                return PAISES[m.group(1)]
+    return ""
+
+
 def _columna(encabezados, patron):
     for r in encabezados:
         for p in r.palabras:
@@ -348,6 +410,7 @@ def leer_items(renglones):
     primera = filas[0][0]
     encabezados = [r for r in renglones if r.pagina == primera.pagina and primera.top - 60 <= r.top < primera.top]
     ancho_col = _columna(encabezados, r"WIDTH|ANCHO")
+    col_origen = _columna(encabezados, r"(?i)ORIGIN|ORIGEN|COUNTRY|PA[IÍ]S|C\.?O\.?O\.?")
     alto = _interlineado([f[0].top for f in filas])
     renglon = {}
     for pg in {r.pagina for r in renglones}:
@@ -393,7 +456,18 @@ def leer_items(renglones):
                                                     for x in renglones if x.pagina == o.pagina
                                                     and id(x) not in qlineas)]
         arriba, abajo = [p for _, p in arriba], [p for _, p in abajo]
+        origen = ""
+        if col_origen:
+            en_col = [p for p in texto_fila if p.x1 >= col_origen.x0 - 8 and p.x0 <= col_origen.x1 + 40]
+            origen = pais_en(" ".join(p.texto for p in en_col))
+            if origen:
+                texto_fila = [p for p in texto_fila if p not in en_col]
         codigo, desc = _codigo_y_descripcion(arriba + [texto_fila] + abajo)
+        if not origen:
+            origen = origen_expreso(desc)
+            if origen:
+                desc = re.sub(r"(?i)[\s,;/(-]*\b(MADE\s+IN|COUNTRY\s+OF\s+ORIGIN|ORIGIN|ORIGEN)\b\W*[A-Za-zÁÉÍÓÚÑ .]{2,30}"
+                              r"\)?\s*$", "", desc).strip() or desc
         unidad = _unidad(encabezados, q.x0, q.x1) if q in nums else None
         m = UNIDAD_INICIAL.match(desc)
         if m:
@@ -412,6 +486,7 @@ def leer_items(renglones):
         mn = NCM_EN_TEXTO.search(desc)
         l = Linea(nro or str(n), codigo, desc, cant, precio, round(importe, 2), unidad or "UNIDADES", ancho, y=r.y)
         l.ncm_factura = re.sub(r"\D", "", mn.group(1)) if mn else ""
+        l.origen = origen
         lineas.append(l)
     return lineas
 
@@ -726,6 +801,7 @@ def leer_carpeta(carpeta, usar_ocr=True, avisar=None):
                                                                    f.observaciones)
         else:
             f.observaciones.append("No encontré el packing list de esta factura: neto y bruto quedan vacíos.")
+        _origen_factura(f, [texto for texto, rs in packings if any(rs is x for x in propios)])
         importador = proveedor = ""
         try:
             from . import historial
@@ -737,6 +813,39 @@ def leer_carpeta(carpeta, usar_ocr=True, avisar=None):
             l.ncm, l.descripcion_es, l.motivo = sugerir(l.codigo, l.descripcion, l.ancho_mm,
                                                           getattr(l, "ncm_factura", ""), importador, proveedor)
     return facturas
+
+
+def _origen_factura(f, textos_packing):
+    """Completa el origen de las líneas que no lo traen: el dicho expresamente en la factura o el packing y, si
+    no, el país del proveedor."""
+    faltan = [l for l in f.lineas if not l.origen]
+    por_linea = len(f.lineas) - len(faltan)
+    if not faltan:
+        if len({l.origen for l in f.lineas}) > 1:
+            f.observaciones.append("Origen: la factura lo discrimina por línea y hay más de un país ("
+                                   + ", ".join(sorted({l.origen for l in f.lineas})) + ").")
+        return
+    texto = getattr(f, "texto", "")
+    # el origen dicho para toda la factura: fuera de los renglones de los ítems
+    claves = [_norm(l.descripcion)[:12] for l in f.lineas if len(_norm(l.descripcion)) >= 6]
+    general = "\n".join(r for r in texto.splitlines() if not any(c in _norm(r) for c in claves))
+    pais = origen_expreso(general)
+    motivo = "dicho en la factura"
+    if not pais:
+        pais = next((p for p in map(origen_expreso, textos_packing) if p), "")
+        motivo = "dicho en el packing list"
+    if not pais:
+        pais = pais_del_proveedor(texto)
+        motivo = "país del proveedor; no está discriminado por línea"
+    for l in faltan:
+        l.origen = pais
+    if pais:
+        f.observaciones.append(f"Origen {pais} ({motivo})" + (f" en {len(faltan)} ítems; los otros {por_linea} "
+                                                              "lo traen en su línea." if por_linea else ".")
+                               + (" Hay ítems de otro origen: revisarlos." if por_linea and
+                                  any(l.origen != pais for l in f.lineas) else ""))
+    else:
+        f.observaciones.append("No encontré el país de origen ni el país del proveedor: completar la columna ORIGEN.")
 
 
 def _inicia_factura(renglones, previos):
@@ -772,7 +881,7 @@ def controles_factura(f, renglones):
 
 # --- planilla ------------------------------------------------------------------
 COLUMNAS = ["CANTIDAD", "VALOR", "NCM", "DESCRIPCION", "NETO", "BRUTO", "UNIDAD MEDIDA", "CODIGO FACTURA",
-            "DESCRIPCION FACTURA", "NCM SUGERIDO"]
+            "DESCRIPCION FACTURA", "NCM SUGERIDO", "ORIGEN"]
 
 
 def generar_planilla(facturas, ruta):
@@ -792,15 +901,15 @@ def generar_planilla(facturas, ruta):
             n += 1
             ws.append([n if varias else (int(l.nro) if l.nro.isdigit() else n)] + ([f.numero, f.fecha] if varias else [])
                       + [l.cantidad, l.importe, None, l.descripcion_es or None, l.neto, l.bruto, l.unidad, l.codigo,
-                         l.descripcion, l.ncm or None])
+                         l.descripcion, l.ncm or None, l.origen or None])
     amarillo = PatternFill("solid", fgColor="FFF2CC")
     for c in ws[1]:
         c.font = Font(bold=True)
-    ultima = ws.max_column
+    ultima = ws.max_column - 1   # NCM SUGERIDO
     for fila in ws.iter_rows(min_row=1):
         fila[ultima - 1].fill = amarillo
     d = 3 if varias else 1
-    anchos = [6] + ([16, 11] if varias else []) + [11, 11, 14, 55, 10, 10, 20, 20, 50, 15]
+    anchos = [6] + ([16, 11] if varias else []) + [11, 11, 14, 55, 10, 10, 20, 20, 50, 15, 16]
     for i, a in enumerate(anchos):
         ws.column_dimensions[openpyxl.utils.get_column_letter(i + 1)].width = a
     for fila in ws.iter_rows(min_row=2):

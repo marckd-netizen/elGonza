@@ -29,7 +29,10 @@ Paso previo a la revisión: arma la planilla de ítems para cargar el DUA a part
    `--formato xlsx|ods|ambos`.
 
 Columnas: ITEM, CANTIDAD, VALOR, NCM (vacía, para el NCM definitivo), DESCRIPCION (en español), NETO, BRUTO,
-UNIDAD MEDIDA, CODIGO FACTURA, DESCRIPCION FACTURA y **NCM SUGERIDO** a 10 dígitos. Si en la carpeta hay varias
+UNIDAD MEDIDA, CODIGO FACTURA, DESCRIPCION FACTURA, **NCM SUGERIDO** a 10 dígitos y **ORIGEN**. El origen se toma
+de la línea si la factura lo discrimina (columna de país u «made in …»); si no, del origen dicho para toda la factura
+o el packing list («COUNTRY OF ORIGIN», «PAÍS DE ORIGEN»; el puerto de origen no cuenta) y, si no, es el país del
+proveedor (el de su dirección). La hoja Notas dice de dónde salió. Si en la carpeta hay varias
 facturas, después de ITEM (correlativo de todas) van FACTURA (número) y FECHA (dd/mm/aaaa), y el resto se corre.
 
 - Los ítems son los renglones donde cantidad × precio da el importe; código y descripción se juntan aunque estén

@@ -90,7 +90,7 @@ def test_planilla_una_factura(tmp_path):
     ruta, _ = planilla_de_carpeta(_carpeta(tmp_path), usar_ocr=False, avisar=lambda m: None)
     ws = openpyxl.load_workbook(ruta)["Hoja1"]
     assert [c.value for c in ws[1]] == ["ITEM", "CANTIDAD", "VALOR", "NCM", "DESCRIPCION", "NETO", "BRUTO",
-                                        "UNIDAD MEDIDA", "CODIGO FACTURA", "DESCRIPCION FACTURA", "NCM SUGERIDO"]
+                                        "UNIDAD MEDIDA", "CODIGO FACTURA", "DESCRIPCION FACTURA", "NCM SUGERIDO", "ORIGEN"]
     assert [c.value for c in ws[2]][:3] == [1, 22400, 5196.8]
     assert ws["K2"].value == "4811.41.90.00"
 
@@ -105,7 +105,7 @@ def test_planilla_multifactura(tmp_path):
     filas = [[c.value for c in r] for r in ws.iter_rows(min_row=2)]
     assert [r[:3] for r in filas] == [[1, "FLS-1", "31/08/2026"], [2, "FLS-1", "31/08/2026"], [3, "FLS-1", "31/08/2026"],
                                       [4, "FLS-1", "31/08/2026"], [5, "INV-77", "05/09/2026"]]
-    assert filas[4][-1] == "3919.10.20.00"
+    assert filas[4][-2] == "3919.10.20.00"
     assert any("packing" in o for o in facturas[1].observaciones)
 
 
@@ -278,3 +278,23 @@ def test_planilla_en_ods(tmp_path):
     assert 'table:name="Hoja1"' in contenido and 'table:name="Notas"' in contenido and "NCM SUGERIDO" in contenido
     ruta, _ = planilla_de_carpeta(carpeta, formato="ods", avisar=lambda *_: None)
     assert ruta.suffix == ".ods"
+
+
+def test_pais_de_origen():
+    from elgonza.planilla import origen_expreso, pais_del_proveedor
+    assert pais_del_proveedor("ZHEJIANG SAS VALVE CO.\nYUHUAN, ZHEJIANG, CHINA\nTO: EFUSION S.A. MONTEVIDEO, URUGUAY") == "CHINA"
+    assert pais_del_proveedor("MADESA\nBOM PRINCIPIO - RS - Brasil\nCLIENTE: DEVOTO URUGUAY") == "BRASIL"
+    assert origen_expreso("PUERTO DE ORIGEN: BOM PRINCIPIO - BRAZIL") == ""
+    assert origen_expreso("COUNTRY OF ORIGIN: VIET NAM") == "VIETNAM"
+    assert origen_expreso("Ball valve 1/2 Made in Taiwan") == "TAIWAN"
+
+
+def test_origen_en_la_planilla(tmp_path):
+    filas = [_fila(180, "1", "BV-1", "Brass ball valve 1/2 made in Taiwan", "", "100.00", "2.00", "200.00"),
+             _fila(210, "2", "BV-2", "Brass ball valve 3/4", "", "100.00", "3.00", "300.00")]
+    extra = [(60, 40, "NINGBO VALVES CO., LTD. NINGBO, ZHEJIANG, CHINA")]
+    _pdf(tmp_path / "invoice.pdf", [_factura("NV-9", "01/10/2026", filas, extra)])
+    f = leer_carpeta(tmp_path, usar_ocr=False)[0]
+    assert [l.origen for l in f.lineas] == ["TAIWAN", "CHINA"]
+    assert "made in" not in f.lineas[0].descripcion.lower()
+    assert any("Origen CHINA" in o and "otro origen" in o for o in f.observaciones)
