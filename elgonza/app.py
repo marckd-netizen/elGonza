@@ -77,8 +77,21 @@ def main(argv=None):
     ap.add_argument("--no-abrir", action="store_true", help="No abrir el informe en el navegador")
     ap.add_argument("--mega6", action="store_true", help="Tomar los documentos de Mega6 aunque la carpeta tenga archivos")
     ap.add_argument("--carpeta", dest="nro", help="Número de carpeta: toma el borrador que generó Mega6 (respaldo\\Borrador<nro>.pdf) y sus documentos")
+    ap.add_argument("--planilla", metavar="CARPETA", help="Factura a planilla: arma la planilla de ítems con NCM sugerido "
+                    "a partir de las facturas y packing lists de la carpeta (paso previo al borrador)")
     ap.add_argument("--version", action="version", version=__version__)
     args = ap.parse_args(argv)
+    if args.planilla:
+        from .planilla import planilla_de_carpeta
+        ruta, res = planilla_de_carpeta(args.planilla, args.salida and Path(args.salida) / f"Planilla {Path(args.planilla).name}.xlsx",
+                                        not args.sin_ocr)
+        if ruta is None:
+            print(res)
+            return 1
+        print(f"{sum(len(f.lineas) for f in res)} ítems de {len(res)} factura(s) -> {ruta}")
+        if not args.no_abrir:
+            abrir(ruta)
+        return 0
     if args.nro:
         args.carpeta = borrador_de_carpeta(args.nro)
         if not args.carpeta:
@@ -99,6 +112,10 @@ def main(argv=None):
         if not args.no_abrir and len(carpetas) == 1:
             webbrowser.open(ruta.as_uri())
     return 0
+
+
+def abrir(ruta):
+    os.startfile(str(ruta)) if sys.platform == "win32" else webbrowser.open(Path(ruta).as_uri())
 
 
 def ventana():
@@ -183,6 +200,34 @@ def ventana():
         boton.configure(state="disabled")
         threading.Thread(target=trabajar, args=(str(archivo),), daemon=True).start()
 
+    def trabajar_planilla(carpeta):
+        from .planilla import planilla_de_carpeta
+        try:
+            escribir(f"— Factura a planilla: {Path(carpeta).name}")
+            ruta, res = planilla_de_carpeta(carpeta, avisar=escribir)
+            if ruta is None:
+                escribir(res)
+                return
+            for f in res:
+                escribir(f"  Factura {f.numero or f.archivo} ({f.fecha or 'sin fecha'}): {len(f.lineas)} ítems")
+                for o in f.observaciones:
+                    escribir(f"    · {o}")
+            escribir(f"  Planilla: {ruta}")
+            abrir(ruta)
+        except PermissionError:
+            escribir("No pude guardar la planilla: ¿está abierta en Excel? Cerrala y volvé a probar.")
+        except Exception as e:
+            escribir(f"Error: {e}")
+        finally:
+            raiz.after(0, lambda: boton.configure(state="normal"))
+
+    def elegir_planilla():
+        carpeta = filedialog.askdirectory(title="Carpeta con las facturas (y packing lists)")
+        if not carpeta:
+            return
+        boton.configure(state="disabled")
+        threading.Thread(target=trabajar_planilla, args=(carpeta,), daemon=True).start()
+
     def abrir_libro():
         from .clientes import cargar, ruta_libro
         cargar()  # lo crea con ejemplos si no existe
@@ -196,6 +241,16 @@ def ventana():
     tk.Button(botones, text="Carpeta de Mega6…", command=carpeta_mega6, padx=10, pady=4).pack(side="left", padx=8)
     tk.Button(botones, text="Borrador + Mega6…", command=elegir_borrador, padx=10, pady=4).pack(side="left")
     tk.Button(botones, text="Libro de clientes…", command=abrir_libro, padx=10, pady=4).pack(side="left", padx=8)
+    previo = tk.Frame(marco)
+    previo.pack(anchor="w", pady=(0, 8), fill="x")
+    tk.Label(previo, text="Antes del borrador:").pack(side="left")
+    tk.Button(previo, text="Factura a planilla…", command=elegir_planilla, padx=10, pady=4).pack(side="left", padx=8)
+
+    def abrir_antecedentes():
+        from .ncm import antecedentes, ruta_antecedentes
+        antecedentes()  # lo crea con ejemplos si no existe
+        abrir(ruta_antecedentes())
+    tk.Button(previo, text="Antecedentes NCM…", command=abrir_antecedentes, padx=10, pady=4).pack(side="left")
     log.pack(fill="both", expand=True)
     raiz.mainloop()
     return 0

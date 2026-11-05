@@ -18,6 +18,31 @@ La carpeta tiene que tener un archivo cuyo nombre empiece con `Borrador` (el PDF
 El tipo de los demás documentos se deduce del nombre (`fact`, `inv`, `flete`, `seguro`, `cese`, `conc`, `bl`,
 `awb`, `guia`, `pack`, `thc`, `gastos`) y, si no alcanza, del contenido.
 
+## Factura a planilla (antes del borrador)
+
+Paso previo a la revisión: arma la planilla de ítems para cargar el DUA a partir de las facturas.
+
+1. Guardar en una carpeta las facturas en PDF (con o sin packing list adentro, o el packing en otro PDF).
+2. **Factura a planilla…** y elegir la carpeta. Desde la línea de comandos: `elgonza --planilla "C:\ruta\carpeta"`.
+3. Se guarda `Planilla <carpeta>.xlsx` en la misma carpeta y se abre.
+
+Columnas: ITEM, CANTIDAD, VALOR, NCM (vacía, para el NCM definitivo), DESCRIPCION (en español), NETO, BRUTO,
+UNIDAD MEDIDA, CODIGO FACTURA, DESCRIPCION FACTURA y **NCM SUGERIDO** a 10 dígitos. Si en la carpeta hay varias
+facturas, después de ITEM (correlativo de todas) van FACTURA (número) y FECHA (dd/mm/aaaa), y el resto se corre.
+
+- Los ítems son los renglones donde cantidad × precio da el importe; código y descripción se juntan aunque estén
+  partidos en dos renglones.
+- Neto y bruto salen del packing list: el peso de cada bulto se reparte por cantidad entre sus renglones, se suma por
+  código y se reparte entre los ítems de la factura con ese código.
+- El NCM sugerido sale primero de `Documentos\elGonza\antecedentes_ncm.txt` (botón **Antecedentes NCM…**, una línea
+  por producto: `código o texto | NCM | descripción`) y si no, de reglas por tipo de mercadería (por ahora papel y
+  plástico autoadhesivos: 4811.41 y 3919, según ancho y material). Se verifica contra el Arancel Nacional
+  (febrero 2025, en `elgonza/datos/arancel.tsv`) y la hoja **Notas** muestra el motivo y las tasas AEC, E/Z e I/Z.
+- La hoja **Notas** también avisa descuentos o comisiones restados en la factura, totales que no cierran y
+  diferencias entre factura y packing list.
+
+Las facturas escaneadas se leen con OCR, pero funciona mejor con PDF que tengan texto.
+
 ## Documentos desde Mega6
 
 Con **Carpeta de Mega6…** alcanza con el número de carpeta: elGonza toma el borrador que Mega6 deja al
