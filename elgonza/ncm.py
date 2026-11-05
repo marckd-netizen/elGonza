@@ -114,12 +114,40 @@ def _desc_es(desc, base):
     return " ".join([base] + extra)
 
 
-def sugerir(codigo, descripcion, ancho_mm=None):
+def aperturas(ncm8):
+    """Aperturas nacionales (10 dígitos) de un NCM de 8."""
+    d = re.sub(r"\D", "", ncm8)[:8]
+    return sorted(k for k in arancel() if len(k) == 13 and k.replace(".", "").startswith(d))
+
+
+def sugerir(codigo, descripcion, ancho_mm=None, ncm_factura=""):
     """(ncm, descripción en español, motivo). ncm vacío si no hay sugerencia."""
     for clave, ncm, desc_es in antecedentes():
         if (_norm(clave) and _norm(clave) == _norm(codigo)) or \
                 (not re.fullmatch(r"[A-Z0-9\-#()./]+", clave) and clave.lower() in (descripcion or "").lower()):
             return _verificar(ncm, desc_es, f"Antecedente: «{clave}» → {ncm}.")
+    if ncm_factura:
+        d = re.sub(r"\D", "", ncm_factura)
+        legible = f"{d[:4]}.{d[4:6]}.{d[6:8]}"
+        ops = aperturas(d)
+        if len(d) == 10:
+            ops = [k for k in ops if k.replace(".", "") == d] or ops
+        if len(ops) == 1:
+            return _verificar(ops[0], "", f"NCM de la factura ({legible}); tiene una sola apertura nacional.")
+        if ops:
+            t = arancel()
+            elegido = next((k for k in ops if t[k].descripcion.lower().startswith(("las demás", "los demás"))), ops[0])
+            otras = "; ".join(f"{k}: {t[k].descripcion}" for k in ops)
+            return _verificar(elegido, "", f"NCM de la factura ({legible}), con varias aperturas nacionales: {otras}. "
+                                           "Elegir la que corresponda.")
+        aviso = f"El NCM de la factura ({legible}) no está en el arancel. "
+    else:
+        aviso = ""
+    ncm, desc_es, motivo = _por_reglas(codigo, descripcion, ancho_mm)
+    return ncm, desc_es, aviso + motivo
+
+
+def _por_reglas(codigo, descripcion, ancho_mm):
     d = descripcion or ""
     angosto = ancho_mm is not None and ancho_mm <= 200
     if ADHESIVO.search(d) and PAPEL.search(d) and not FILM.search(d):
