@@ -32,7 +32,7 @@ jobs:
           $t = "C:\Program Files\Tesseract-OCR"
           Invoke-WebRequest https://github.com/tesseract-ocr/tessdata_fast/raw/main/spa.traineddata -OutFile "$t\tessdata\spa.traineddata"
       - name: Armar elGonza (carpeta, abre más rápido que un solo .exe)
-        run: pyinstaller --onedir --windowed --name elGonza elgonza_app.py
+        run: pyinstaller --onedir --windowed --name elGonza --add-data "elgonza/datos;elgonza/datos" elgonza_app.py
       - name: Paquete
         shell: pwsh
         run: |
