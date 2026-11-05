@@ -31,10 +31,14 @@ UNIDAD MEDIDA, CODIGO FACTURA, DESCRIPCION FACTURA y **NCM SUGERIDO** a 10 dígi
 facturas, después de ITEM (correlativo de todas) van FACTURA (número) y FECHA (dd/mm/aaaa), y el resto se corre.
 
 - Los ítems son los renglones donde cantidad × precio da el importe; código y descripción se juntan aunque estén
-  partidos en dos renglones.
-- Neto y bruto salen del packing list: el peso de cada bulto se reparte por cantidad entre sus renglones, se suma por
-  código y se reparte entre los ítems de la factura con ese código.
-- El NCM sugerido sale primero de `Documentos\elGonza\antecedentes_ncm.txt` (botón **Antecedentes NCM…**, una línea
+  partidos en dos renglones. También lee facturas sin numerar con la cantidad en un renglón aparte, arriba
+  («60 (Sesenta)»), y la unidad al principio de la descripción («UN»). La revisión de borradores (regla 9) usa la
+  misma lectura para sumar las cantidades.
+- Neto y bruto salen del packing list. Si trae un renglón por producto con su neto y bruto, se toman directo; si
+  trae pesos por bulto, el peso de cada bulto se reparte por cantidad entre sus renglones, se suma por código y se
+  reparte entre los ítems de la factura con ese código.
+- Si la factura trae el NCM («NCM: 94036000»), se sugiere su apertura nacional a 10 dígitos (y si hay varias, se
+  listan en Notas). Si no, el NCM sugerido sale primero de `Documentos\elGonza\antecedentes_ncm.txt` (botón **Antecedentes NCM…**, una línea
   por producto: `código o texto | NCM | descripción`) y si no, de reglas por tipo de mercadería (por ahora papel y
   plástico autoadhesivos: 4811.41 y 3919, según ancho y material). Se verifica contra el Arancel Nacional
   (febrero 2025, en `elgonza/datos/arancel.tsv`) y la hoja **Notas** muestra el motivo y las tasas AEC, E/Z e I/Z.

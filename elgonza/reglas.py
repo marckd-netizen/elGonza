@@ -858,10 +858,17 @@ def lineas_de_factura(texto):
     que está más a la derecha. Si hay varias opciones, gana el total más a la derecha, los factores más pegados
     a él y la lectura con la cantidad entera primero."""
     res = []
-    for l in texto.splitlines():
+    renglones = texto.splitlines()
+    for n, l in enumerate(renglones):
         if re.search(r"(?i)https?:|www\.", l):
             continue
         toks = [t for t in re.findall(r"\d[\d.,]*\d|\d", l) if len(re.sub(r"\D", "", t)) <= 12][-15:]
+        if len(toks) == 2 or (len(toks) >= 2 and not _hay_triple(toks)):
+            # cantidad en el renglón de arriba, sola («60 (Sesenta)») y precio e importe en este
+            par = _cantidad_arriba(renglones[max(0, n - 2):n], toks)
+            if par:
+                res.append(par + (l.strip(),))
+                continue
         if len(toks) < 3:
             continue
         vals = [_lecturas(t) for t in toks]
@@ -881,6 +888,31 @@ def lineas_de_factura(texto):
         if mejor:
             res.append(mejor[1])
     return res
+
+
+def _hay_triple(toks):
+    vals = [_lecturas(t) for t in toks]
+    return any(abs(a * c - t) <= max(0.011, 0.0005 * t) and 1 not in (a, c) and t not in (a, c)
+               for k in range(2, len(vals)) for t in vals[k] for i in range(k) for j in range(i + 1, k)
+               for a in vals[i] for c in vals[j])
+
+
+def _cantidad_arriba(previos, toks):
+    """(cantidad, precio, total) si un renglón de arriba empieza con un número que, por un precio de este renglón,
+    da un importe que está más a la derecha."""
+    vals = [_lecturas(t) for t in toks]
+    for p in reversed(previos):
+        m = re.match(r"\s*(\d[\d.,]*)\b", p)
+        if not m or len(re.findall(r"\d[\d.,]*", p)) > 2:
+            continue
+        for q in _lecturas(m.group(1)):
+            for k in range(len(vals) - 1, 0, -1):
+                for t in vals[k]:
+                    for j in range(k):
+                        for c in vals[j]:
+                            if 1 not in (q, c) and t not in (q, c) and abs(q * c - t) <= max(0.011, 0.0005 * t):
+                                return (q, c, t)
+    return None
 
 
 def _bruto_neto_kg(texto):

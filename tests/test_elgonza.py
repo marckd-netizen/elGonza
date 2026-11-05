@@ -385,3 +385,16 @@ def test_deap_en_fray_bentos_salto_colonia():
     assert [c for c in Revision(b, [], clientes=[]).ejecutar() if c.regla == 3 and c.resultado == "error" and "DEAP" in c.titulo]
     b.aduana = "1 MONTEVIDEO"
     assert not [c for c in Revision(b, [], clientes=[]).ejecutar() if "DEAP" in c.titulo]
+
+
+def test_lineas_de_factura_con_cantidad_arriba():
+    from elgonza.reglas import lineas_de_factura
+    texto = """   CANTIDAD
+          60  (Sesenta)
+              UN  COMEDOR LEXY / RUSTIC/NEGRO - RUSTIC - 340479 / 20.24   1,214.40
+                  341642 - 53295Z1 - NCM: 94036000
+          60  (Sesenta)
+              UN  ESTANTERIA 3 NIVELES 71X102X30CM - BLANCO - 340089 21.68 1,300.80
+                  - 6907091 - NCM: 94036000
+MONTO TOTAL MERCANCIAS                                    USD       2,515.20"""
+    assert [x[:3] for x in lineas_de_factura(texto)] == [(60, 20.24, 1214.40), (60, 21.68, 1300.80)]

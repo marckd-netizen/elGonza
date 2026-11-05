@@ -138,3 +138,43 @@ def test_arancel_y_antecedentes(tmp_path):
     ncm, desc, motivo = sugerir("OPAT-W24", "Gloss lamination film / Acrylic", 245)
     assert (ncm, desc) == ("3919.90.10.90", "FILM BOPP PARA LAMINAR") and "Antecedente" in motivo
     assert sugerir("X", "Ballpoint pens", None)[0] == ""
+
+
+# --- factura sin numerar, con la cantidad en un renglón aparte (estilo Madesa) ---
+def _bloque(y, cant, letras, desc, cont, precio, total):
+    return [(70, y, cant), (110, y, letras), (95, y + 10, "UN"), (120, y + 10, desc), (430, y + 10, precio),
+            (500, y + 10, total), (130, y + 20, cont)]
+
+
+def _madesa(tmp_path):
+    enc = [(300, 60, "FACTURA PROFORMA Nº 20260909"), (60, 120, "CANTIDAD"), (95, 130, "UN"),
+           (130, 130, "DESCRIPCION DE MERCANCIAS"), (430, 130, "PRECIO UNIT"), (500, 130, "PRECIO TOTAL")]
+    filas = (_bloque(150, "60", "(Sesenta)", "COMEDOR LEXY / NEGRO - 340479 /", "341642 - 53295Z1 - NCM: 94036000",
+                     "20.24", "1,214.40")
+             + _bloque(190, "48", "(Cuarenta y Ocho)", "ROPERO TOKIO BLANCO 3 PUERTAS - 341061 - 109509 -",
+                       "NCM: 94035000", "125.96", "6,046.08"))
+    pie = [(60, 240, "MONTO TOTAL MERCANCIAS"), (500, 240, "7,260.48"), (60, 260, "BOM PRINCIPIO, 27 DE OCTUBRE DE 2026.")]
+    _pdf(tmp_path / "Fatura 20260909.pdf", [enc + filas + pie])
+    pack = [(300, 60, "PACKING LIST Nº 20260909"), (380, 120, "PESOS (Kg)"), (380, 130, "NETO"), (430, 130, "BRUTO"),
+            (480, 130, "CBM"),
+            (70, 150, "60"), (110, 150, "(Sesenta)"), (95, 160, "UN"), (120, 160, "COMEDOR LEXY / NEGRO - 340479"),
+            (380, 160, "906"), (430, 160, "918"), (480, 160, "2.284"), (130, 170, "/ 341642 - 53295Z1"),
+            (70, 190, "48"), (110, 190, "(Cuarenta y Ocho)"), (95, 200, "UN"), (120, 200, "ROPERO TOKIO BLANCO - 341061 -"),
+            (380, 200, "4,972.8"), (430, 200, "5,126.4"), (480, 200, "11.581"), (130, 210, "109509 - NCM: 94035000"),
+            (60, 240, "TOTAL DE BULTOS: 204"), (60, 252, "PESO NETO: 5,878.8 Kg  PESO BRUTO: 6,044.4 Kg")]
+    _pdf(tmp_path / "Packing list 20260909.pdf", [pack])
+    return tmp_path
+
+
+def test_factura_sin_numerar_cantidad_arriba(tmp_path):
+    (f,) = leer_carpeta(_madesa(tmp_path), usar_ocr=False)
+    assert (f.numero, f.fecha) == ("20260909", "27/10/2026")
+    assert [(l.nro, l.codigo, l.cantidad, l.precio, l.importe, l.unidad) for l in f.lineas] == [
+        ("1", "340479", 60, 20.24, 1214.40, "UNIDADES"), ("2", "341061", 48, 125.96, 6046.08, "UNIDADES")]
+    assert f.lineas[0].descripcion == "COMEDOR LEXY / NEGRO - 340479 / 341642 - 53295Z1 - NCM: 94036000"
+    assert [(l.neto, l.bruto) for l in f.lineas] == [(906, 918), (4972.8, 5126.4)]
+    assert (f.neto_total, f.bruto_total, f.bultos) == (5878.8, 6044.4, 204)
+    # el NCM de la factura, llevado a su apertura nacional
+    assert [l.ncm for l in f.lineas] == ["9403.60.00.00", "9403.50.00.00"]
+    assert "NCM de la factura" in f.lineas[0].motivo
+    assert any("proforma" in o for o in f.observaciones)

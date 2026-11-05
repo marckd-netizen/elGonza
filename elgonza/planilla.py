@@ -157,6 +157,7 @@ class Factura:
 MESES = {m: i + 1 for i, m in enumerate(
     ["JAN", "FEB", "MAR", "APR", "MAY", "JUN", "JUL", "AUG", "SEP", "OCT", "NOV", "DEC"])}
 MESES.update({"ENE": 1, "ABR": 4, "AGO": 8, "SET": 9, "DIC": 12})
+MESES_LARGOS = dict(MESES, FEV=2, MAI=5, OUT=10, DEZ=12)
 
 
 def _fecha(texto):
@@ -165,7 +166,12 @@ def _fecha(texto):
         f = _leer_fecha(m.group(1))
         if f:
             return f
-    return ""
+    # «BOM PRINCIPIO, 27 DE OCTUBRE DE 2026»
+    m = re.search(r"(?i)\b(\d{1,2})\s+DE\s+([A-ZÁÉÍÓÚÇ]+)\s+DE\s+(\d{4})", texto)
+    if m and MESES_LARGOS.get(m.group(2).upper()[:3]):
+        return f"{int(m.group(1)):02d}/{MESES_LARGOS[m.group(2).upper()[:3]]:02d}/{m.group(3)}"
+    m = re.search(r"\b(\d{1,2}/\d{1,2}/\d{4})\b", texto)
+    return _leer_fecha(m.group(1)) if m else ""
 
 
 def _leer_fecha(s):
@@ -197,7 +203,7 @@ def _leer_fecha(s):
 
 
 def _numero_factura(texto):
-    m = re.search(r"(?i)\b(?:INVOICE|FACTURA|INV)\.?\s*(?:NO|N[º°O]|NUMBER|NRO|#)?\.?\s*[:#]?\s*"
+    m = re.search(r"(?i)\b(?:INVOICE|FACTURA|FATURA|INV)\.?\s*(?:PROFORMA\s*|COMERCIAL\s*)?(?:NO|N[º°O]|NUMBER|NRO|#)?\.?\s*[:#]?\s*"
                   r"(?=[A-Z0-9\-/]*\d)([A-Z0-9][A-Z0-9\-/]{2,})", texto)
     return m.group(1) if m else ""
 
@@ -276,51 +282,109 @@ def _columna(encabezados, patron):
     return None
 
 
+def _par_con_cantidad(nums, vecinos):
+    """Factura con la cantidad en un renglón aparte (arriba, sola: «60 (Sesenta)»): busca en el renglón precio e
+    importe y en los vecinos la cantidad que los une. Devuelve (q_palabra, i_precio, i_importe, cant, precio, importe)."""
+    for o in vecinos:
+        qs = [p for p in o.palabras if p.es_numero]
+        if not qs or len(qs) > 2:
+            continue
+        for q in qs:
+            for k in range(len(nums) - 1, 0, -1):
+                for j in range(k):
+                    if q.x1 >= nums[j].x0:
+                        continue
+                    for t in nums[k].valores:
+                        for c in nums[j].valores:
+                            for a in q.valores:
+                                if 1 not in (a, c) and t not in (a, c) and abs(a * c - t) <= max(0.011, 0.0005 * t):
+                                    return q, o, j, k, a, c, t
+    return None
+
+
+def _alineadas(filas_nums, tol=4):
+    """Posiciones (x0, x1, centro) que se repiten en al menos la mitad de los renglones: columnas de números."""
+    def marcas(p):
+        return (round(p.x0), round(p.x1), round((p.x0 + p.x1) / 2))
+    todas = [marcas(p) for nums in filas_nums for p in nums]
+    minimo = max(2, len(filas_nums) // 2) if len(filas_nums) > 1 else 1
+
+    def es_columna(p):
+        m = marcas(p)
+        return sum(1 for o in todas if any(abs(m[i] - o[i]) <= tol for i in range(3))) >= minimo
+    return es_columna
+
+
+UNIDAD_INICIAL = re.compile(r"^(UN|UND|UNID|PCS|PC|PZS|KGS?|M2|MTS?|SETS?|ROLLS?)\s+(?=\S)")
+NCM_EN_TEXTO = re.compile(r"(?i)\bNCM\b\s*[:.]?\s*(\d{4}\.?\d{2}\.?\d{2}(?:\.?\d{2})?)")
+CODIGO_EN_TEXTO = re.compile(r"-\s*([A-Z]*\d{5,}[A-Z0-9]*)\b")
+
+
 def leer_items(renglones):
     """Líneas de una factura (renglones de sus páginas, en orden)."""
-    filas = []
-    for r in renglones:
+    filas, qlineas = [], set()
+    for n, r in enumerate(renglones):
         if TOTAL.search(r.texto) or DEDUCCION.search(r.texto):
             continue
-        nums = [p for p in r.palabras if p.es_numero]
-        t = _triple(nums[-12:]) if len(nums) >= 3 else None
+        nums = [p for p in r.palabras if p.es_numero][-12:]
+        t = _triple(nums) if len(nums) >= 3 else None
         if t:
-            filas.append((r, nums[-12:], t))
+            i, j, k, a, c, tt = t
+            filas.append((r, nums, nums[i], j, k, a, c, tt))
+            continue
+        if len(nums) >= 2 and id(r) not in qlineas:
+            vecinos = [o for o in renglones[max(0, n - 2):n][::-1] + renglones[n + 1:n + 2]
+                       if o.pagina == r.pagina and abs(o.top - r.top) < 25 and id(o) not in qlineas
+                       and not TOTAL.search(o.texto)]
+            par = _par_con_cantidad(nums, vecinos)
+            if par:
+                q, o, j, k, a, c, tt = par
+                qlineas.add(id(o))
+                filas.append((r, nums, q, j, k, a, c, tt))
+    filas = [f for f in filas if id(f[0]) not in qlineas]
     if not filas:
         return []
     primera = filas[0][0]
     encabezados = [r for r in renglones if r.pagina == primera.pagina and primera.top - 60 <= r.top < primera.top]
     ancho_col = _columna(encabezados, r"WIDTH|ANCHO")
     alto = _interlineado([f[0].top for f in filas])
-    usados = {id(f[0]) for f in filas}
+    usados = {id(f[0]) for f in filas} | qlineas
+    es_columna = _alineadas([f[1] for f in filas])
     lineas = []
-    for n, (r, nums, (i, j, k, cant, precio, importe)) in enumerate(filas, 1):
-        # la parte de texto termina donde empieza la tira final de números del renglón
+    for n, (r, nums, q, j, k, cant, precio, importe) in enumerate(filas, 1):
         pal = r.palabras
+        # el texto termina donde empiezan las columnas de números (las que se alinean entre renglones)
         corte = len(pal)
-        while corte > 0 and pal[corte - 1].es_numero:
+        while corte > 0 and pal[corte - 1].es_numero and (es_columna(pal[corte - 1]) or pal[corte - 1] in (q, nums[j], nums[k])):
             corte -= 1
-        nro = ""
-        if corte == 0 or (pal[0].es_numero and re.fullmatch(r"\d{1,4}", pal[0].texto) and pal[0] is not nums[i]):
+        nro, inicio = "", 0
+        if pal and pal[0].es_numero and re.fullmatch(r"\d{1,4}", pal[0].texto) and pal[0] is not q \
+                and (corte > 1 or corte == 0):
             nro, inicio = pal[0].texto, 1
-        else:
-            inicio = 0
-        limite = (pal[corte].x0 if corte < len(pal) and corte > 0 else
-                  next((p.x0 for p in pal[1:] if p.es_numero), pal[-1].x0)) - 2
-        texto_fila = [p for p in pal[inicio:] if p.x1 <= limite and not (p.es_numero and p in nums[i:])]
-        # renglones partidos: sin números, pegados arriba o abajo (más cerca de este ítem que de otro)
+            corte = max(corte, 1)
+        limite = (pal[corte].x0 if corte < len(pal) else pal[-1].x1 + 1) - 2
+        texto_fila = [p for p in pal[inicio:corte]]
+        # renglones partidos: sin números en las columnas, pegados arriba o abajo (más cerca de este ítem que de otro)
         arriba, abajo = [], []
         for o in renglones:
-            if id(o) in usados or o.pagina != r.pagina or TOTAL.search(o.texto) or any(p.es_numero for p in o.palabras):
+            if id(o) in usados or o.pagina != r.pagina or TOTAL.search(o.texto):
                 continue
             d = o.top - r.top
-            if 0 < abs(d) < alto * 0.6:
-                otras = [abs(o.top - f[0].top) for f in filas if f[0] is not r and f[0].pagina == r.pagina]
-                if otras and min(otras) < abs(d):
-                    continue
-                pal_o = [p for p in o.palabras if p.x1 <= limite]
-                (arriba if d < 0 else abajo).append(pal_o)
+            if not (0 < abs(d) < alto * 0.6) or any(p.es_numero and p.x1 > limite for p in o.palabras):
+                continue
+            otras = [abs(o.top - f[0].top) for f in filas if f[0] is not r and f[0].pagina == r.pagina]
+            if otras and min(otras) < abs(d):
+                continue
+            (arriba if d < 0 else abajo).append([p for p in o.palabras if p.x1 <= limite])
         codigo, desc = _codigo_y_descripcion(arriba + [texto_fila] + abajo)
+        unidad = _unidad(encabezados, q.x0, q.x1) if q in nums else None
+        m = UNIDAD_INICIAL.match(desc)
+        if m:
+            desc = desc[m.end():]
+            unidad = unidad or next(nombre for patron, nombre in UNIDADES if patron.match(m.group(1)))
+        if not codigo:
+            mc = CODIGO_EN_TEXTO.search(desc)
+            codigo = mc.group(1) if mc else ""
         ancho = None
         if ancho_col:
             for p in nums:
@@ -328,8 +392,10 @@ def leer_items(renglones):
                     v = num_libre(p.texto)
                     ancho = v * 10 if v and _columna(encabezados, r"\(?CM\)?") else v
                     break
-        lineas.append(Linea(nro or str(n), codigo, desc, cant, precio, round(importe, 2),
-                            _unidad(encabezados, nums[i].x0, nums[i].x1), ancho, y=r.y))
+        mn = NCM_EN_TEXTO.search(desc)
+        l = Linea(nro or str(n), codigo, desc, cant, precio, round(importe, 2), unidad or "UNIDADES", ancho, y=r.y)
+        l.ncm_factura = re.sub(r"\D", "", mn.group(1)) if mn else ""
+        lineas.append(l)
     return lineas
 
 
@@ -338,10 +404,111 @@ def _norm(c):
     return re.sub(r"[^A-Z0-9]", "", (c or "").upper())
 
 
+def _decimal(texto):
+    """Separador decimal del documento: '.' si hay números como 25,472.136; ',' si hay 25.472,136."""
+    if re.search(r"\d,\d{3}\.\d", texto):
+        return "."
+    if re.search(r"\d\.\d{3},\d", texto):
+        return ","
+    return None
+
+
+def _valor(tok, dec):
+    t = (tok or "").replace(" ", "")
+    if dec == ".":
+        t = t.replace(",", "")
+    elif dec == ",":
+        t = t.replace(".", "").replace(",", ".")
+    else:
+        return num_libre(tok)
+    try:
+        return float(t)
+    except ValueError:
+        return None
+
+
+NETO_ENC = r"N\.?W\.?|NETO|NET|NETWEIGHT"
+BRUTO_ENC = r"G\.?W\.?|BRUTO|GROSS|GROSSWEIGHT"
+
+
+def _total_en_texto(patron, texto, dec):
+    m = re.search(patron + r"[^\d\n]{0,20}(\d[\d.,]*)", texto)
+    return _valor(m.group(1), dec) if m else None
+
+
+def pesos_por_item(renglones, lineas, obs):
+    """Packing list con un renglón por producto y sus columnas de neto y bruto (sin bultos mezclados).
+    Devuelve (neto, bruto, bultos) o None si el packing no tiene esa forma."""
+    texto = "\n".join(r.texto for r in renglones)
+    dec = _decimal(texto)
+    col, entradas = None, []
+    for i, r in enumerate(renglones):
+        n = next((p for p in r.palabras if re.fullmatch(NETO_ENC, p.texto, re.I)), None)
+        b = next((p for p in r.palabras if re.fullmatch(BRUTO_ENC, p.texto, re.I)), None)
+        if n and b:
+            col = (n, b)
+            continue
+        if not col or TOTAL.search(r.texto):
+            continue
+        cn, cb = ((p.x0 + p.x1) / 2 for p in col)
+        nums = [p for p in r.palabras if p.es_numero]
+        vn = min(nums, key=lambda p: abs((p.x0 + p.x1) / 2 - cn), default=None)
+        vb = min(nums, key=lambda p: abs((p.x0 + p.x1) / 2 - cb), default=None)
+        if not vn or not vb or vn is vb or abs((vn.x0 + vn.x1) / 2 - cn) > 25 or abs((vb.x0 + vb.x1) / 2 - cb) > 25:
+            continue
+        sig = renglones[i + 1] if i + 1 < len(renglones) and renglones[i + 1].pagina == r.pagina \
+            and renglones[i + 1].top - r.top < 15 else None
+        pal = r.palabras[1:] if r.palabras[0].es_numero and re.fullmatch(r"\d{1,4}", r.palabras[0].texto) else r.palabras
+        pal = [p for p in pal if p.x1 < min(vn.x0, vb.x0) - 2]
+        trozos = _trozos(pal)
+        codigo = trozos[0] if trozos and _es_codigo(trozos[0]) else ""
+        if not codigo:
+            junto = UNIDAD_INICIAL.sub("", " ".join(t for t in trozos) + " " + (sig.texto if sig else ""))
+            m = CODIGO_EN_TEXTO.search(junto)
+            codigo = m.group(1) if m else ""
+        entradas.append((_norm(codigo), _valor(vn.texto, dec), _valor(vb.texto, dec)))
+    if not entradas:
+        return None
+    codigos = {_norm(l.codigo) for l in lineas}
+    if not all(c and c in codigos for c, _, _ in entradas):
+        if len(entradas) != len(lineas):
+            return None   # renglones de peso sin producto: pesos por bulto
+        entradas = [(_norm(l.codigo) or f"#{k}", n, b) for k, (l, (_, n, b)) in enumerate(zip(lineas, entradas))]
+        for k, l in enumerate(lineas):
+            l._clave = _norm(l.codigo) or f"#{k}"
+    por_codigo = {}
+    for c, n, b in entradas:
+        acc = por_codigo.setdefault(c, [0.0, 0.0])
+        acc[0] += n or 0
+        acc[1] += b or 0
+    cant = {}
+    for k, l in enumerate(lineas):
+        c = getattr(l, "_clave", _norm(l.codigo))
+        cant[c] = cant.get(c, 0) + l.cantidad
+    for k, l in enumerate(lineas):
+        c = getattr(l, "_clave", _norm(l.codigo))
+        if c in por_codigo:
+            l.neto = round(por_codigo[c][0] * l.cantidad / cant[c], 3)
+            l.bruto = round(por_codigo[c][1] * l.cantidad / cant[c], 3)
+        else:
+            obs.append(f"El producto {l.codigo or l.descripcion[:40]} no aparece en el packing list: sin pesos.")
+    suma_n, suma_b = sum(e[1] or 0 for e in entradas), sum(e[2] or 0 for e in entradas)
+    neto_t = _total_en_texto(r"(?i)(?:PESO\s+NETO|NET\s+WEIGHT|TOTAL\s+N\.?W\.?|^N\.?W\.?)", texto, dec)
+    bruto_t = _total_en_texto(r"(?i)(?:PESO\s+BRUTO|GROSS\s+WEIGHT|TOTAL\s+G\.?W\.?|^G\.?W\.?)", texto, dec)
+    for nombre, suma, tot in (("netos", suma_n, neto_t), ("brutos", suma_b, bruto_t)):
+        if tot and abs(suma - tot) > 0.5:
+            obs.append(f"Packing list: los {nombre} de los productos suman {suma:,.3f} y el total dice {tot:,.3f}.")
+    bultos = _total_en_texto(r"(?i)(?:TOTAL\s+DE\s+BULTOS|TOTAL\s+PACKAGES|TOTAL\s+CAJAS|SAY\s+TOTAL)", texto, dec)
+    return neto_t or round(suma_n, 3), bruto_t or round(suma_b, 3), bultos
+
+
 def pesos_packing(renglones, lineas, obs):
     """Reparte el neto y el bruto del packing entre las líneas. Devuelve (neto_total, bruto_total, bultos)."""
     if not renglones or not lineas:
         return None, None, None
+    por_item = pesos_por_item(renglones, lineas, obs)
+    if por_item:
+        return por_item
     total_cant = round(sum(l.cantidad for l in lineas), 2)
     tot = None
     for r in renglones:
@@ -354,6 +521,7 @@ def pesos_packing(renglones, lineas, obs):
                    "los pesos quedan sin repartir.")
         return None, None, None
     tr, tn = tot
+    dec = _decimal("\n".join(r.texto for r in renglones))
     cols = {}
     i_cant = next(i for i, p in enumerate(tn) if any(abs(v - total_cant) <= max(0.02, total_cant * 0.0005) for v in p.valores))
     cols["cant"] = tn[i_cant]
@@ -390,9 +558,9 @@ def pesos_packing(renglones, lineas, obs):
         n = next((p for p in nums if en_col(p, cols["neto"])), None)
         b = next((p for p in nums if "bruto" in cols and en_col(p, cols["bruto"])), None)
         if q:
-            filas.append([r, num_libre(q.texto) if num_libre(q.texto) is not None else 0, q.x0])
+            filas.append([r, _valor(q.texto, dec) or 0, q.x0])
         if n and (len(nums) <= 5 or q):
-            marcas.append((r.y, num_libre(n.texto) or 0, num_libre(b.texto) if b else None))
+            marcas.append((r.y, _valor(n.texto, dec) or 0, _valor(b.texto, dec) if b else None))
     if not filas or not marcas:
         obs.append("Packing list: no pude leer los renglones de pesos.")
         return None, None, None
@@ -536,7 +704,8 @@ def leer_carpeta(carpeta, usar_ocr=True, avisar=None):
         else:
             f.observaciones.append("No encontré el packing list de esta factura: neto y bruto quedan vacíos.")
         for l in f.lineas:
-            l.ncm, l.descripcion_es, l.motivo = sugerir(l.codigo, l.descripcion, l.ancho_mm)
+            l.ncm, l.descripcion_es, l.motivo = sugerir(l.codigo, l.descripcion, l.ancho_mm,
+                                                          getattr(l, "ncm_factura", ""))
     return facturas
 
 
@@ -565,6 +734,8 @@ def controles_factura(f, renglones):
             if cant and abs(v - 2 * cant) <= 0.02:
                 f.observaciones.append(f"Un renglón de total dice {v:,.2f}, el doble de la cantidad real "
                                        f"({cant:,.2f}): «{r.texto.strip()}».")
+    if re.search(r"(?i)\bPRO-?FORMA\b", getattr(f, "texto", "")):
+        f.observaciones.append("Es una factura proforma: para el DUA hace falta la factura comercial definitiva.")
     if not vistos:
         f.observaciones.append(f"No encontré en la factura un total igual a la suma de los ítems ({suma:,.2f}).")
 
@@ -603,8 +774,10 @@ def generar_planilla(facturas, ruta):
     for i, a in enumerate(anchos):
         ws.column_dimensions[openpyxl.utils.get_column_letter(i + 1)].width = a
     for fila in ws.iter_rows(min_row=2):
-        for k in (0, 1, 4, 5):
+        for k in (0, 1):
             fila[d + k].number_format = "#,##0.00"
+        for k in (4, 5):
+            fila[d + k].number_format = "#,##0.00#"
     ws.freeze_panes = "A2"
 
     ns = wb.create_sheet("Notas")
