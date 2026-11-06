@@ -37,6 +37,7 @@ class Palabra:
     x0: float
     x1: float
     top: float
+    ocr: bool = False
 
     @property
     def valores(self):
@@ -69,9 +70,12 @@ class Renglon:
 
 
 def _renglones(palabras, pagina, tol=3):
+    """Agrupa las palabras en renglones. Con OCR (tol mayor) una palabra se suma al renglón solo si no se pisa con
+    las que ya tiene: un sello encima de la factura corre unos puntos la mitad del renglón."""
     res = []
     for p in sorted(palabras, key=lambda p: (p.top, p.x0)):
-        if res and abs(res[-1].top - p.top) <= tol:
+        if res and abs(res[-1].top - p.top) <= tol and (tol <= 3 or not any(
+                p.x0 < o.x1 and o.x0 < p.x1 for o in res[-1].palabras)):
             res[-1].palabras.append(p)
         else:
             res.append(Renglon(pagina, p.top, [p]))
@@ -99,7 +103,7 @@ def _palabras_ocr(ruta, nro, imagen=None, dpi=300):
     d = pytesseract.image_to_data(imagen.convert("L"), lang=_idiomas_ocr(), config="--psm 6",
                                   output_type=pytesseract.Output.DICT)
     k = 72 / dpi
-    return [Palabra(t, d["left"][i] * k, (d["left"][i] + d["width"][i]) * k, d["top"][i] * k)
+    return [Palabra(t.strip(), d["left"][i] * k, (d["left"][i] + d["width"][i]) * k, d["top"][i] * k, True)
             for i, t in enumerate(d["text"]) if t.strip()]
 
 
@@ -112,13 +116,14 @@ def paginas_de(ruta, usar_ocr=True):
         with pdfplumber.open(ruta) as pdf:
             for i, pg in enumerate(pdf.pages):
                 pal = _palabras_pdf(pg)
+                tol = 3
                 if len(pal) < 10 and usar_ocr:
-                    pal = _palabras_ocr(ruta, i)
-                paginas.append(_renglones(pal, i))
+                    pal, tol = _palabras_ocr(ruta, i), 5
+                paginas.append(_renglones(pal, i, tol))
     elif usar_ocr:
         from PIL import Image, ImageSequence
         for i, img in enumerate(ImageSequence.Iterator(Image.open(ruta))):
-            paginas.append(_renglones(_palabras_ocr(ruta, i, img.copy()), i))
+            paginas.append(_renglones(_palabras_ocr(ruta, i, img.copy()), i, 5))
     return paginas
 
 
@@ -220,8 +225,8 @@ def _triple(nums):
                     for a in nums[i].valores:
                         for c in nums[j].valores:
                             # cantidad 1: precio e importe iguales («$ 15.61  1  $ 15.61»), con el 1 escrito tal cual
-                            uno = (a == 1 and nums[i].texto == "1" and c == t) or \
-                                  (c == 1 and nums[j].texto == "1" and a == t)
+                            uno = (a == 1 and re.fullmatch(r"1(?:[.,]0+)?", nums[i].texto) and c == t) or \
+                                  (c == 1 and re.fullmatch(r"1(?:[.,]0+)?", nums[j].texto) and a == t)
                             if not uno and (1 in (a, c) or t in (a, c)) or abs(a * c - t) > max(0.011, 0.0005 * t):
                                 continue
                             # la cantidad va antes que el precio y suele ser la más grande
@@ -245,6 +250,27 @@ def _trozos(palabras, gap=6):
         else:
             res.append([p])
     return [" ".join(w.texto for w in t) for t in res]
+
+
+def _limpiar_descripcion(desc):
+    """Saca de la descripción lo que no es descripción: número de línea leído adentro («23.»), lote y vencimiento
+    («Lot #:260907 EXP : 09/2028»), el HS de la columna (23099096), «Invoice: 743070» y signos sueltos del OCR.
+    Devuelve (número de línea o "", HS de 8 dígitos o "", descripción)."""
+    hs = ""
+    m = re.search(r"(?<![\d.,])(?<!NCM: )(?<!NCM )(?<!NCM:)(\d{8})(?![\d.,])", desc)
+    if m:
+        hs = m.group(1)
+        desc = desc[:m.start()] + desc[m.end():]
+    desc = re.sub(r"(?i)\bL[o0a]t\b\s*[#+4*]*\s*:?\s*\d*", " ", desc)
+    desc = re.sub(r"(?i)\bEXP\b\s*:?\s*(\d{1,2}/\d{2,4})?", " ", desc)
+    desc = re.sub(r"(?i)\bInvoice\s*:?\s*\d+", " ", desc)
+    desc = " ".join(desc.split())
+    nro = ""
+    m = re.match(r"[\W_]*(\d{1,3})\s*[.°)]\s+(?=\S)", desc)
+    if m:
+        nro, desc = m.group(1), desc[m.end():]
+    desc = re.sub(r"^[^\wÁÉÍÓÚÑ(]+", "", desc).strip(" -|—_")
+    return nro, hs, desc
 
 
 def _codigo_y_descripcion(partes):
@@ -295,7 +321,14 @@ PAISES = {
     "VIET NAM": "VIETNAM", "THAILAND": "TAILANDIA", "MALAYSIA": "MALASIA", "INDONESIA": "INDONESIA",
     "PHILIPPINES": "FILIPINAS", "SINGAPORE": "SINGAPUR", "KOREA": "COREA DEL SUR", "SOUTH KOREA": "COREA DEL SUR",
     "JAPAN": "JAPON", "JAPON": "JAPON", "AUSTRALIA": "AUSTRALIA", "NEW ZEALAND": "NUEVA ZELANDA",
-    "SOUTH AFRICA": "SUDAFRICA", "EGYPT": "EGIPTO", "URUGUAY": "URUGUAY", "URUGUAI": "URUGUAY",
+    "SOUTH AFRICA": "SUDAFRICA", "EGYPT": "EGIPTO", "IRELAND": "IRLANDA", "EIRE": "IRLANDA",
+    "SCOTLAND": "REINO UNIDO", "WALES": "REINO UNIDO", "GREECE": "GRECIA", "HUNGARY": "HUNGRIA",
+    "ROMANIA": "RUMANIA", "BULGARIA": "BULGARIA", "SLOVENIA": "ESLOVENIA", "SLOVAKIA": "ESLOVAQUIA",
+    "CROATIA": "CROACIA", "LITHUANIA": "LITUANIA", "LATVIA": "LETONIA", "ESTONIA": "ESTONIA",
+    "LUXEMBOURG": "LUXEMBURGO", "UKRAINE": "UCRANIA", "RUSSIA": "RUSIA", "MOROCCO": "MARRUECOS",
+    "TUNISIA": "TUNEZ", "SRI LANKA": "SRI LANKA", "CAMBODIA": "CAMBOYA", "MYANMAR": "MYANMAR",
+    "UNITED ARAB EMIRATES": "EMIRATOS ARABES UNIDOS", "UAE": "EMIRATOS ARABES UNIDOS", "SAUDI ARABIA": "ARABIA SAUDITA",
+    "COSTA RICA": "COSTA RICA", "PANAMA": "PANAMA", "GUATEMALA": "GUATEMALA", "CUBA": "CUBA", "URUGUAY": "URUGUAY", "URUGUAI": "URUGUAY",
 }
 _PAIS = re.compile(r"(?<![A-Z])(" + "|".join(re.escape(k) for k in sorted(PAISES, key=len, reverse=True))
                    + r")(?![A-Z])")
@@ -427,6 +460,7 @@ def leer_items(renglones):
                 f = (r, nums, nums[j], nums.index(q), k, c, a, tt)
             arregladas.append(f)
         filas = arregladas
+    col_hs = _columna(encabezados, r"(?i)HS|H\.S\.?|NCM|HTS|TARIFF|HSN")
     col_origen = _columna(encabezados, r"(?i)ORIGIN|ORIGEN|COUNTRY|PA[IÍ]S|C\.?O\.?O\.?")
     alto = _interlineado([f[0].top for f in filas])
     renglon = {}
@@ -507,12 +541,52 @@ def leer_items(renglones):
             desc = desc[mcod.end():]
             if mcod.group(2):
                 desc += (" ISBN " if re.match(r"97[89]\d{10}$", mcod.group(2)) else " EAN ") + mcod.group(2)
+        nro_texto, hs_fila, desc = _limpiar_descripcion(desc)
+        hs_fila = hs_fila or next((p.texto for p in nums if re.fullmatch(r"\d{8}", p.texto)), "")
+        if nro_texto and (not nro or nro != nro_texto) and int(nro_texto) == n + (int(lineas[-1].nro) - len(lineas)
+                                                                                  if lineas and lineas[-1].nro.isdigit()
+                                                                                  else 0):
+            nro = nro_texto
+        # «XMAR200/BUCKET»: código pegado a la descripción
+        if codigo and "/" in codigo and re.fullmatch(r"[A-Z0-9\-.]*\d[A-Z0-9\-.]*/[A-Z]{3,}", codigo):
+            codigo, resto = codigo.split("/", 1)
+            desc = f"{resto} {desc}".strip()
+        if not codigo:
+            # «BIOA01 / BIOACTIVE 3 x 60g»; con OCR puede haber basura antes (un sello encima)
+            mc = re.match(r"([A-Z0-9][A-Z0-9\-.]{2,})\s*/\s*(\S.*)", desc) or \
+                re.search(r"\b([A-Z]{2,}[A-Z0-9\-.]*\d[A-Z0-9\-.]*)\s*/\s*(\S.*)", desc)
+            if mc:
+                codigo, desc = mc.group(1), mc.group(2)
         mn = NCM_EN_TEXTO.search(desc)
         l = Linea(nro or str(n), codigo, desc, cant, precio, round(importe, 2), unidad or "UNIDADES", ancho, y=r.y)
-        l.ncm_factura = re.sub(r"\D", "", mn.group(1)) if mn else ""
+        l.ocr = any(p.ocr for p in r.palabras)
+        l.ncm_factura = re.sub(r"\D", "", mn.group(1)) if mn else (hs_fila if col_hs else "")
         l.origen = origen
         lineas.append(l)
+    _renumerar(lineas)
+    for l in lineas:
+        # restos del OCR (un sello o una mancha sobre el renglón): signos raros, letras sueltas en minúscula,
+        # mezclas como «35gCOM» o «3Bopo96»
+        raras = [w for w in l.descripcion.split() if re.search(r"[¢§!|~«»“”‘’`^{}\[\]<>=]", w)
+                 or (re.fullmatch(r"[a-z]{1,2}", w) and w not in ("x", "ml", "lt", "kg", "g", "gr", "cm", "mm", "m",
+                                                                  "l", "de", "y", "a", "of", "pc"))
+                 or re.search(r"[A-Z][a-z]+\d|\d[a-z]+[A-Z]|[a-z][A-Z]{2,}", w)]
+        l.dudosa = l.ocr and bool(raras)
     return lineas
+
+
+def _renumerar(lineas):
+    """Facturas numeradas: un número que el OCR leyó mal (repetido o fuera de orden) se corrige por la secuencia."""
+    nums = [int(l.nro) if l.nro.isdigit() else None for l in lineas]
+    if sum(1 for i in range(1, len(nums)) if nums[i] and nums[i - 1] and nums[i] == nums[i - 1] + 1) < len(nums) * 0.6:
+        return
+    for i in range(1, len(lineas)):
+        prev = int(lineas[i - 1].nro) if lineas[i - 1].nro.isdigit() else None
+        if prev is None or nums[i] == prev + 1:
+            continue
+        sig = nums[i + 1] if i + 1 < len(nums) else None
+        if sig is None or sig >= prev + 2:
+            lineas[i].nro = str(prev + 1)
 
 
 # --- packing list ------------------------------------------------------------
@@ -783,9 +857,14 @@ PESO_BRUTO = re.compile(r"(?i)\b(GROSS\s*WEIGHT|PESO\s*BRUTO|PESO\s*BRUTO\s*TOTA
 
 def _tipo_pagina(renglones, anterior):
     t = " ".join(r.texto for r in renglones[:40]).upper()
-    if re.search(r"CERTIFICATE\s+OF\s+ORIGIN|CERTIFICADO\s+DE\s+ORIGEN", t):
+    if re.search(r"CERTIFICATE\s+OF\s+(ORIGIN|ANALYSIS|CONFORMITY)|CERTIFICADO\s+DE\s+(ORIGEN|AN[AÁ]LISIS)", t):
         return "certificado"
-    if re.search(r"PACKING|PACKAGE LIST|LISTA DE EMPAQUE|EMPAQUE", t):
+    # «Packing Slip: 642884» o «Packing : WITHOUT HANGER» en una factura son datos, no el título
+    sin_rotulos = re.sub(r"PACKING\s*(SLIP|LIST)?\s*(NO\.?|N[º°]|NUMBER|#)?\s*[:#]", " ", t)
+    if re.search(r"INVOICE|FACTURA", t) and not re.search(r"PACKING|PACKAGE LIST|LISTA DE EMPAQUE|EMPAQUE",
+                                                         sin_rotulos):
+        return "factura"
+    if re.search(r"PACKING|PACKAGE LIST|LISTA DE EMPAQUE|EMPAQUE", sin_rotulos):
         return "packing"
     if re.search(r"INVOICE|FACTURA", t):
         return "factura"
@@ -1124,6 +1203,10 @@ def controles_factura(f, renglones):
             if cant and abs(v - 2 * cant) <= 0.02:
                 f.observaciones.append(f"Un renglón de total dice {v:,.2f}, el doble de la cantidad real "
                                        f"({cant:,.2f}): «{r.texto.strip()}».")
+    dudosas = [l.nro for l in f.lineas if getattr(l, "dudosa", False)]
+    if dudosas:
+        f.observaciones.append("La descripción de los ítems " + ", ".join(dudosas) + " se leyó con restos del escaneo "
+                               "(un sello o una mancha encima): revisarla contra la factura.")
     if re.search(r"(?i)\bPRO-?FORMA\b", getattr(f, "texto", "")):
         f.observaciones.append("Es una factura proforma: para el DUA hace falta la factura comercial definitiva.")
     if not vistos:

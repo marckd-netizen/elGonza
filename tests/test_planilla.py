@@ -373,3 +373,32 @@ def test_factura_y_packing_en_excel(tmp_path):
     # 6111 es para bebés: la remera de niña va en 6109.10; la de bebé queda en 6111.20
     assert [l.ncm for l in f.lineas] == ["6109.10.00.00", "6111.20.00.00"]
     assert not any("total igual" in o for o in f.observaciones)
+
+
+def test_factura_escaneada_con_sello():
+    """Lo que trae una factura escaneada (TRM): «Packing Slip:» en el encabezado, lote y vencimiento debajo de la
+    descripción, número de línea leído dentro del texto, precio 1.00, renglón partido por un sello."""
+    from elgonza.planilla import Palabra, _limpiar_descripcion, _renglones, _renumerar, _tipo_pagina, leer_items
+
+    def renglon(top, *palabras):
+        return [Palabra(t, x, x + 5 * len(t), top) for x, t in palabras]
+    enc = renglon(50, (300, "INVOICE")) + renglon(80, (40, "Packing"), (80, "Slip:"), (110, "642884"))
+    assert _tipo_pagina(_renglones(enc, 0), None) == "factura"
+    assert _limpiar_descripcion("23. HOOF19/ HOOF CONDITIONER 500ML Lot #:261027 EXP : 10/2030") == \
+        ("23", "", "HOOF19/ HOOF CONDITIONER 500ML")
+    assert _limpiar_descripcion("Invoice: 743070 XMAR33-3/ HAT 65050030")[1:] == ("65050030", "XMAR33-3/ HAT")
+    cab = renglon(150, (40, "Line"), (62, "Part"), (255, "HS"), (310, "Quantity"), (400, "Price"), (465, "VAT"),
+                  (505, "Total"))
+    filas = renglon(170, (40, "1"), (62, "BIOA01"), (110, "/"), (118, "BIOACTIVE"), (255, "23099096"),
+                    (310, "60.0000"), (400, "20.75"), (465, "0.00"), (505, "1,245.00")) + \
+        renglon(184, (141, "Lot"), (160, "#:260907"), (234, "EXP"), (259, "09/2028")) + \
+        renglon(200, (311, "30.0000"), (505, "30.00")) + \
+        renglon(204, (40, "2"), (62, "XMAR200/BUCKET"), (180, "GREEN"), (400, "1.00"), (465, "0.00"))
+    ls = leer_items(_renglones(cab + filas, 0, 5))
+    assert [(l.nro, l.codigo, l.descripcion, l.cantidad, l.precio, l.importe) for l in ls] == [
+        ("1", "BIOA01", "BIOACTIVE", 60, 20.75, 1245), ("2", "XMAR200", "BUCKET GREEN", 30, 1, 30)]
+    assert ls[0].ncm_factura == "23099096"
+    from types import SimpleNamespace as L
+    xs = [L(nro=str(n)) for n in range(20, 29)] + [L(nro=n) for n in ("29", "29", "31", "31", "33")]
+    _renumerar(xs)
+    assert [x.nro for x in xs][-6:] == ["28", "29", "30", "31", "32", "33"]
