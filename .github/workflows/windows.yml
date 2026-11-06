@@ -24,7 +24,7 @@ jobs:
         with:
           python-version: "3.12"
       - name: Dependencias
-        run: pip install -r requirements.txt pyinstaller
+        run: pip install -r requirements.txt -c empaque/versiones.txt pyinstaller==6.11.1
       - name: Tesseract OCR con español
         shell: pwsh
         run: |
@@ -40,9 +40,25 @@ jobs:
           Copy-Item -Recurse dist\elGonza paquete\programa
           Copy-Item -Recurse "C:\Program Files\Tesseract-OCR" paquete\programa\Tesseract-OCR
           Copy-Item empaque\elGonza.cmd paquete\
+          Copy-Item empaque\actualizar.cmd paquete\
           Copy-Item README.md paquete\LEEME.md
           Copy-Item docs\libro_de_criterios.md paquete\
+          # firma de las librerías: si es igual a la instalada, alcanza con el paquete de actualización
+          $tess = (& "C:\Program Files\Tesseract-OCR\tesseract.exe" --version 2>&1 | Select-Object -First 1)
+          $firma = @("python $(python -c 'import sys; print(sys.version)')", "tesseract $tess") + (pip freeze | Sort-Object)
+          $firma | Set-Content -Encoding ascii paquete\programa\dependencias.txt
+          Get-Content paquete\programa\dependencias.txt
+          # paquete de actualización: solo lo que cambia entre versiones de elGonza
+          New-Item -ItemType Directory actualizacion\programa\_internal | Out-Null
+          Copy-Item paquete\programa\elGonza.exe, paquete\programa\dependencias.txt actualizacion\programa\
+          Copy-Item -Recurse paquete\programa\_internal\elgonza actualizacion\programa\_internal\elgonza
+          Copy-Item paquete\elGonza.cmd, paquete\actualizar.cmd, paquete\LEEME.md, paquete\libro_de_criterios.md actualizacion\
+          Get-ChildItem -Recurse actualizacion | Select-Object FullName, Length
       - uses: actions/upload-artifact@v4
         with:
           name: elGonza-windows
           path: paquete
+      - uses: actions/upload-artifact@v4
+        with:
+          name: elGonza-actualizacion
+          path: actualizacion

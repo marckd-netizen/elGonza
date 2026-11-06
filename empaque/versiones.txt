@@ -1,0 +1,12 @@
+# Versiones fijas para el compilado de Windows: mientras no cambien (ni Python, ni PyInstaller, ni Tesseract),
+# una versión nueva de elGonza se instala copiando solo el paquete de actualización (elGonza.exe y los datos).
+pdfplumber==0.11.10
+pdfminer.six==20260107
+pypdfium2==5.13.0
+charset-normalizer==3.5.1
+pymupdf==2.1
+pytesseract==0.3.13
+pillow==12.3.0
+openpyxl==3.1.5
+et_xmlfile==2.0.0
+packaging==26.3

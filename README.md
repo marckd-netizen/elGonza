@@ -106,7 +106,13 @@ Cada cambio en el repositorio arma el paquete en GitHub Actions (flujo **Windows
 **En la red (F:) para todas las computadoras:** copiar `elGonza.cmd` y `programa` a una carpeta de F: y hacer un
 acceso directo a `elGonza.cmd` en cada equipo. Al abrirlo, copia el programa a
 `%LOCALAPPDATA%\elGonza\programa` solo si cambió (la primera vez tarda un poco, después es casi inmediato) y lo
-abre desde la computadora. Para actualizar todas, alcanza con reemplazar la carpeta `programa` en F:.
+abre desde la computadora.
+
+**Para actualizar:** cada compilado deja también el artefacto `elGonza-actualizacion`, con solo lo que cambia entre
+versiones (`elGonza.exe` y los datos, unos pocos archivos en vez de ~1400). Descomprimirlo en la computadora, abrir
+`actualizar.cmd` e indicar la carpeta de F:. Antes de copiar compara `programa\dependencias.txt` (versiones de Python,
+librerías y Tesseract): si la versión nueva trae otras librerías avisa y hay que copiar el paquete completo
+`elGonza-windows` esa vez. Como en F: cambian solo esos archivos, cada computadora también copia solo eso al abrir.
 
 ## Desde Python
 
