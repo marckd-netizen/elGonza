@@ -402,3 +402,22 @@ def test_factura_escaneada_con_sello():
     xs = [L(nro=str(n)) for n in range(20, 29)] + [L(nro=n) for n in ("29", "29", "31", "31", "33")]
     _renumerar(xs)
     assert [x.nro for x in xs][-6:] == ["28", "29", "30", "31", "32", "33"]
+
+
+def test_pesos_dichos_en_la_factura_y_ncm_en_la_descripcion():
+    from elgonza.planilla import Factura, Linea, _limpiar_descripcion, _pesos_sin_packing, peso_neto_en
+    assert _limpiar_descripcion("CÁMARA HDCVI TIPO DOMO G4 8525.89.29 4 PÇ") == ("", "85258929", "CÁMARA HDCVI TIPO DOMO G4")
+    texto = "FACTURA INVOICE NO.: 0022/26\nTOTAL US$ 7.086,30\nPESO NETO: 75,000 KG\nPESO BRUTO: 83,000 KG"
+    assert peso_neto_en(texto) == 75
+    f = Factura("f.pdf", "0022/26", "", [Linea("1", "A", "x", 1, 300, 300), Linea("2", "B", "y", 1, 100, 100)])
+    f.texto, f.sin_packing = texto, True
+    # una hoja con un peso mal leído (983 kg brutos para 75 netos) no se usa
+    f.otros_textos = []
+    _pesos_sin_packing([f], [])
+    assert (f.neto_total, f.bruto_total) == (75, 83)
+    assert [(l.neto, l.bruto) for l in f.lineas] == [(56.25, 62.25), (18.75, 20.75)]
+    g = Factura("g.pdf", "1", "", [Linea("1", "A", "x", 1, 100, 100)])
+    g.texto, g.sin_packing = "PESO NETO: 75,000 KG\nPESO BRUTO: 983,000 KG", True
+    g.otros_textos = ["LISTA DE EMPAQUE\nPESO NETO: 75,000 KG\nPESO BRUTO: 83,000 KG"]
+    _pesos_sin_packing([g], [])
+    assert g.bruto_total == 83

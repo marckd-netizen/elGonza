@@ -64,7 +64,10 @@ facturas, después de ITEM (correlativo de todas) van FACTURA (número) y FECHA 
 - La hoja **Notas** también avisa descuentos o comisiones restados en la factura, totales que no cierran y
   diferencias entre factura y packing list.
 
-Las facturas escaneadas se leen con OCR, pero funciona mejor con PDF que tengan texto.
+Las facturas escaneadas se leen con OCR, pero funciona mejor con PDF que tengan texto. Si con un escaneo malo (fax,
+baja resolución) la suma de los ítems no da el total, se vuelve a leer con varias pasadas de OCR, borrando antes las
+líneas de la tabla, y se juntan los ítems que cada pasada leyó bien. Si no hay packing list pero la factura (o otra
+hoja del mismo PDF) dice el peso neto y bruto, se reparten por valor entre las líneas.
 
 ## Documentos desde Mega6
 

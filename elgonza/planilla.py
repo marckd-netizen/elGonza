@@ -89,7 +89,35 @@ def _palabras_pdf(pagina):
             for w in pagina.dedupe_chars().extract_words(x_tolerance=1.5, y_tolerance=2)]
 
 
-def _palabras_ocr(ruta, nro, imagen=None, dpi=300):
+def limpiar_imagen(imagen):
+    """Para escaneos malos (fax, baja resolución): borra las líneas de las tablas, que el OCR confunde con letras
+    y le hacen saltear renglones, y suaviza el grano."""
+    import numpy as np
+    from PIL import Image, ImageFilter
+    a = np.array(imagen.convert("L"))
+    oscuro = a < 160
+
+    def corridas(m, largo):
+        # celdas que forman parte de una corrida horizontal de al menos «largo» píxeles oscuros
+        res = np.zeros_like(m)
+        for i in range(m.shape[0]):
+            fila = m[i]
+            if fila.sum() < largo:
+                continue
+            d = np.diff(np.concatenate(([0], fila.view(np.int8), [0])))
+            ini, fin = np.where(d == 1)[0], np.where(d == -1)[0]
+            for x0, x1 in zip(ini, fin):
+                if x1 - x0 >= largo:
+                    res[i, x0:x1] = True
+        return res
+    lado = max(a.shape) // 20
+    lineas = corridas(oscuro, lado) | corridas(oscuro.T, lado // 2 + 1).T
+    a = a.copy()
+    a[lineas] = 255
+    return Image.fromarray(a).filter(ImageFilter.MedianFilter(3))
+
+
+def _palabras_ocr(ruta, nro, imagen=None, dpi=300, limpiar=False):
     """Palabras de una página escaneada, en puntos (1/72") como las del PDF."""
     import pytesseract
     from .documentos import _idiomas_ocr, configurar_tesseract
@@ -98,8 +126,12 @@ def _palabras_ocr(ruta, nro, imagen=None, dpi=300):
         import pymupdf as fitz
         from PIL import Image
         with fitz.open(ruta) as doc:
+            if limpiar:
+                dpi = 400
             pix = doc[nro].get_pixmap(dpi=dpi)
             imagen = Image.open(io.BytesIO(pix.tobytes("png")))
+    if limpiar:
+        imagen = limpiar_imagen(imagen)
     d = pytesseract.image_to_data(imagen.convert("L"), lang=_idiomas_ocr(), config="--psm 6",
                                   output_type=pytesseract.Output.DICT)
     k = 72 / dpi
@@ -107,8 +139,9 @@ def _palabras_ocr(ruta, nro, imagen=None, dpi=300):
             for i, t in enumerate(d["text"]) if t.strip()]
 
 
-def paginas_de(ruta, usar_ocr=True):
-    """[[Renglon]] por página. Usa el texto del PDF; si una página no tiene, OCR."""
+def paginas_de(ruta, usar_ocr=True, limpiar=False):
+    """[[Renglon]] por página. Usa el texto del PDF; si una página no tiene, OCR (con limpiar, borrando antes las
+    líneas de las tablas)."""
     ruta = Path(ruta)
     paginas = []
     if ruta.suffix.lower() == ".pdf":
@@ -118,12 +151,12 @@ def paginas_de(ruta, usar_ocr=True):
                 pal = _palabras_pdf(pg)
                 tol = 3
                 if len(pal) < 10 and usar_ocr:
-                    pal, tol = _palabras_ocr(ruta, i), 5
+                    pal, tol = _palabras_ocr(ruta, i, limpiar=limpiar), 5
                 paginas.append(_renglones(pal, i, tol))
     elif usar_ocr:
         from PIL import Image, ImageSequence
         for i, img in enumerate(ImageSequence.Iterator(Image.open(ruta))):
-            paginas.append(_renglones(_palabras_ocr(ruta, i, img.copy()), i, 5))
+            paginas.append(_renglones(_palabras_ocr(ruta, i, img.copy(), limpiar=limpiar), i, 5))
     return paginas
 
 
@@ -261,6 +294,12 @@ def _limpiar_descripcion(desc):
     if m:
         hs = m.group(1)
         desc = desc[:m.start()] + desc[m.end():]
+    # NCM con puntos en la columna siguiente a la descripción («8525.89.29 4 PÇ …»): se corta ahí
+    m = re.search(r"(?<![\d.,])(\d{3}\s?\d[.,]\d{2}[.,]\d{1,2}(?:[.,]\d{2})?)(?![\d])", desc)
+    if m and m.start() > 8:
+        hs = hs or re.sub(r"\D", "", m.group(1))
+        desc = desc[:m.start()]
+    desc = desc.replace("|", " ")
     desc = re.sub(r"(?i)\bL[o0a]t\b\s*[#+4*]*\s*:?\s*\d*", " ", desc)
     desc = re.sub(r"(?i)\bEXP\b\s*:?\s*(\d{1,2}/\d{2,4})?", " ", desc)
     desc = re.sub(r"(?i)\bInvoice\s*:?\s*\d+", " ", desc)
@@ -541,7 +580,17 @@ def leer_items(renglones):
             desc = desc[mcod.end():]
             if mcod.group(2):
                 desc += (" ISBN " if re.match(r"97[89]\d{10}$", mcod.group(2)) else " EAN ") + mcod.group(2)
+        l_ocr = any(p.ocr for p in r.palabras)
         nro_texto, hs_fila, desc = _limpiar_descripcion(desc)
+        if l_ocr:
+            # el OCR a veces deja en la descripción la cantidad, el precio o el importe: se corta desde ahí
+            ws = desc.split()
+            for i_w, w in enumerate(ws):
+                v = num_libre(w.strip("|,;"))
+                if i_w >= 2 and v is not None and any(abs(v - x) < 0.006 for x in (cant, precio, importe)) and \
+                        all(re.fullmatch(r"[\d.,|]+|[A-ZÇ]{1,4}\.?", x) for x in ws[i_w:]):
+                    desc = " ".join(ws[:i_w])
+                    break
         hs_fila = hs_fila or next((p.texto for p in nums if re.fullmatch(r"\d{8}", p.texto)), "")
         if nro_texto and (not nro or nro != nro_texto) and int(nro_texto) == n + (int(lineas[-1].nro) - len(lineas)
                                                                                   if lineas and lineas[-1].nro.isdigit()
@@ -554,7 +603,8 @@ def leer_items(renglones):
         if not codigo:
             # «BIOA01 / BIOACTIVE 3 x 60g»; con OCR puede haber basura antes (un sello encima)
             mc = re.match(r"([A-Z0-9][A-Z0-9\-.]{2,})\s*/\s*(\S.*)", desc) or \
-                re.search(r"\b([A-Z]{2,}[A-Z0-9\-.]*\d[A-Z0-9\-.]*)\s*/\s*(\S.*)", desc)
+                re.search(r"\b([A-Z]{2,}[A-Z0-9\-.]*\d[A-Z0-9\-.]*)\s*/\s*(\S.*)", desc) or \
+                (re.search(r"(?:^|\s)(\d{5,8})\s*\)?\s+([A-ZÁÉÍÓÚÑ]{3,}.*)", desc) if l_ocr else None)
             if mc:
                 codigo, desc = mc.group(1), mc.group(2)
         mn = NCM_EN_TEXTO.search(desc)
@@ -578,6 +628,10 @@ def leer_items(renglones):
 def _renumerar(lineas):
     """Facturas numeradas: un número que el OCR leyó mal (repetido o fuera de orden) se corrige por la secuencia."""
     nums = [int(l.nro) if l.nro.isdigit() else None for l in lineas]
+    if lineas and all(nums) and len(set(nums)) < len(nums) and len(lineas) <= 12:
+        for i, l in enumerate(lineas):
+            l.nro = str(min(nums) + i)
+        return
     if sum(1 for i in range(1, len(nums)) if nums[i] and nums[i - 1] and nums[i] == nums[i - 1] + 1) < len(nums) * 0.6:
         return
     for i in range(1, len(lineas)):
@@ -596,10 +650,10 @@ def _norm(c):
 
 def _decimal(texto):
     """Separador decimal del documento: '.' si hay números como 25,472.136; ',' si hay 25.472,136."""
-    if re.search(r"\d,\d{3}\.\d", texto):
-        return "."
-    if re.search(r"\d\.\d{3},\d", texto):
-        return ","
+    punto = len(re.findall(r"\d,\d{3}\.\d{1,3}(?![\d/])", texto))
+    coma = len(re.findall(r"\d\.\d{3},\d{1,3}(?![\d/])", texto))
+    if punto or coma:
+        return "." if punto > coma else "," if coma > punto else None
     return None
 
 
@@ -873,6 +927,12 @@ def _tipo_pagina(renglones, anterior):
     return anterior
 
 
+def _decimal_peso(texto, rotulo):
+    """Separador decimal para un peso: el del documento; si no se sabe y el rótulo es en español o portugués
+    («PESO BRUTO: 83,000 KG»), la coma."""
+    return _decimal(texto) or ("," if re.match(r"(?i)PESO", rotulo) else None)
+
+
 def peso_bruto_transporte(texto):
     """Peso bruto en kg de un conocimiento o guía: el que dice «gross weight / peso bruto» y si no, «weight».
     Devuelve (kg, texto encontrado) o None. Descarta el peso tasable (chargeable)."""
@@ -881,7 +941,7 @@ def peso_bruto_transporte(texto):
         antes = texto[max(0, m.start() - 15):m.start()].upper()
         if re.search(r"CHARGEABLE|TASABLE|NET|NETO|VOLUM", antes + m.group(0).upper()):
             continue
-        v = num_libre(m.group(2))
+        v = _valor(m.group(2), _decimal_peso(texto, m.group(1)))
         if not v:
             continue
         unidad = (m.group(3) or re.search(r"(?i)KGS?|LBS?|$", m.group(0)).group(0) or "KG").upper()
@@ -895,7 +955,21 @@ def peso_bruto_transporte(texto):
     return v, frase
 
 
-def prorratear_peso(lineas, bruto, neto_pct=0.91):
+PESO_NETO = re.compile(r"(?i)\b(NET\s*WEIGHT|PESO\s*NETO|N\.\s*W\.|NET\s*WT|TOTAL\s*NTWT)\b[^0-9\n]{0,25}?(\d[\d.,]*)\s*(KGS?|KILOS?|LBS?)?")
+
+
+def peso_neto_en(texto):
+    """Peso neto en kg dicho en el documento, o None."""
+    m = PESO_NETO.search(texto)
+    if not m:
+        return None
+    v = _valor(m.group(2), _decimal_peso(texto, m.group(1)))
+    if v and (m.group(3) or "").upper().startswith("LB"):
+        v = round(v * 0.45359237, 2)
+    return v
+
+
+def prorratear_peso(lineas, bruto, neto_pct=0.91, neto=None):
     """Reparte el peso bruto entre las líneas por valor; neto = 91 % del bruto de cada línea. Dos decimales; el
     redondeo se ajusta en la línea de mayor valor para que la suma dé exacta."""
     total = sum(l.importe for l in lineas)
@@ -905,6 +979,11 @@ def prorratear_peso(lineas, bruto, neto_pct=0.91):
         l.bruto = round(bruto * l.importe / total, 2)
     mayor = max(lineas, key=lambda l: l.importe)
     mayor.bruto = round(mayor.bruto + round(bruto - sum(l.bruto for l in lineas), 2), 2)
+    if neto:
+        for l in lineas:
+            l.neto = round(neto * l.importe / total, 2)
+        mayor.neto = round(mayor.neto + round(neto - sum(l.neto for l in lineas), 2), 2)
+        return
     for l in lineas:
         l.neto = round(l.bruto * neto_pct, 2)
     mayor.neto = round(mayor.neto + round(round(bruto * neto_pct, 2) - sum(l.neto for l in lineas), 2), 2)
@@ -953,10 +1032,16 @@ def leer_carpeta(carpeta, usar_ocr=True, avisar=None):
             if t == "certificado":
                 continue
             lineas = leer_items(rs)
+            if usar_ocr and a.suffix.lower() == ".pdf" and any(p.ocr for r in rs for p in r.palabras) \
+                    and not _cierra(lineas, rs):
+                if avisar:
+                    avisar(f"  {a.name}: escaneo difícil, leyéndolo de nuevo con más pasadas de OCR…")
+                lineas = _ocr_reforzado(a, sorted({r.pagina for r in rs}), lineas, rs)
             if not lineas:
                 continue
             f = Factura(a.name, _numero_factura(texto), _fecha(texto), lineas)
             f.texto = texto
+            f.otros_textos = ["\n".join(r.texto for r in x) for tt, x in bloques if tt not in ("factura", "certificado")]
             controles_factura(f, rs)
             facturas.append(f)
     # la misma factura en Excel y en PDF: vale la de Excel
@@ -998,6 +1083,56 @@ def leer_carpeta(carpeta, usar_ocr=True, avisar=None):
                                                           getattr(l, "ncm_factura", ""), importador, proveedor)
     _pesos_sin_packing(facturas, transportes)
     return facturas
+
+
+def _cierra(lineas, renglones):
+    """¿La suma de los ítems da algún total de la factura?"""
+    if not lineas:
+        return False
+    suma = round(sum(l.importe for l in lineas), 2)
+    return any(abs(v - suma) <= 0.02 for r in renglones if TOTAL.search(r.texto)
+               for p in r.palabras if p.es_numero for v in p.valores)
+
+
+PASADAS_OCR = [(300, 6, True), (500, 11, True), (400, 3, True), (300, 11, True), (500, 12, True), (400, 4, True)]
+
+
+def _ocr_reforzado(ruta, paginas, lineas, renglones):
+    """Escaneos malos: varias pasadas de OCR (resolución y modo distintos, sin las líneas de la tabla) y se juntan
+    los ítems que cada una leyó bien (cantidad × precio = importe), por su posición en la página. Para cuando
+    la suma da el total de la factura."""
+    import pytesseract
+    import pymupdf as fitz
+    from PIL import Image
+    from .documentos import _idiomas_ocr, configurar_tesseract
+    configurar_tesseract()
+    juntas = {}
+
+    def sumar(ls):
+        for l in ls:
+            clave = round(l.y / 8)
+            if not any(abs(clave - k) <= 1 for k in juntas):
+                juntas[clave] = l
+    sumar(lineas)
+    with fitz.open(ruta) as doc:
+        for dpi, psm, limpiar in PASADAS_OCR:
+            rs = []
+            for n in paginas:
+                im = Image.open(io.BytesIO(doc[n].get_pixmap(dpi=dpi).tobytes("png")))
+                if limpiar:
+                    im = limpiar_imagen(im)
+                d = pytesseract.image_to_data(im.convert("L"), lang=_idiomas_ocr(), config=f"--psm {psm}",
+                                              output_type=pytesseract.Output.DICT)
+                k = 72 / dpi
+                rs += _renglones([Palabra(t.strip(), d["left"][i] * k, (d["left"][i] + d["width"][i]) * k,
+                                          d["top"][i] * k, True) for i, t in enumerate(d["text"]) if t.strip()], n, 5)
+            sumar(leer_items(rs))
+            res = [juntas[k] for k in sorted(juntas)]
+            if _cierra(res, renglones + rs):
+                break
+    res = [juntas[k] for k in sorted(juntas)]
+    _renumerar(res)
+    return res
 
 
 def _leer_excel(ruta, facturas, packings_excel):
@@ -1112,6 +1247,28 @@ def _pesos_sin_packing(facturas, transportes):
     """Sin packing list: el peso bruto del conocimiento o la guía se reparte por valor entre todas las líneas de
     las facturas que no tienen packing (descontando lo que ya pesan las que sí lo tienen)."""
     sin = [f for f in facturas if getattr(f, "sin_packing", False)]
+    # la factura que dice su propio peso («PESO BRUTO: 83,000 KG») se reparte sola, con su neto si lo dice
+    for f in list(sin):
+        # la factura y las otras hojas del mismo archivo; un par neto/bruto que no tiene sentido es un error de lectura
+        p = neto = None
+        for texto in [getattr(f, "texto", "")] + getattr(f, "otros_textos", []):
+            b = peso_bruto_transporte(texto)
+            if not b or not re.search(r"(?i)BRUTO|GROSS|G\.\s*W", b[1]):
+                continue
+            n = peso_neto_en(texto)
+            if n and not (n <= b[0] <= n * 3):
+                continue
+            p, neto = b, n
+            break
+        if not p:
+            continue
+        prorratear_peso(f.lineas, p[0], neto=neto)
+        f.bruto_total = round(sum(l.bruto for l in f.lineas), 2)
+        f.neto_total = round(sum(l.neto for l in f.lineas), 2)
+        f.observaciones.append(f"Sin packing list: el peso que dice la factura («{p[1]}»"
+                               + (f", neto {neto:,.2f} kg" if neto else "") + ") se reparte por valor entre sus "
+                               f"{len(f.lineas)} líneas" + ("." if neto else "; el neto es el 91 % del bruto."))
+        sin.remove(f)
     ids = {id(f) for f in sin}
     if not sin:
         return
