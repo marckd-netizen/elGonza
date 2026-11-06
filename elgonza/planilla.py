@@ -19,7 +19,7 @@ from .numeros import num_libre
 
 NUMERO = re.compile(r"\d[\d.,]*\d|\d")
 SALTEAR_ARCHIVO = re.compile(r"(?i)borrador|flete|freight|seguro|insurance|\bbl\b|awb|guia|conoc|crt|planilla")
-TOTAL = re.compile(r"(?i)\bTO?TA?L\b|\bTOAL\b|\bSUB-?TOTAL\b|\bSUMA\b")
+TOTAL = re.compile(r"(?i)\bTO?TA?L\b|\bTOAL\b|\bSUB-?TOTAL\b|\bSUMA\b|\bINVOICE\s+AMOUNT\b")
 DEDUCCION = re.compile(r"(?i)deduct|discount|commission|descuento|bonificaci|rebate")
 UNIDADES = [
     (re.compile(r"(?i)^(M2|M²|SQM|SQ\.?M|MTS2)$"), "METROS CUADRADOS"),
@@ -443,6 +443,23 @@ def _par_con_cantidad(nums, vecinos):
     return None
 
 
+def _par_con_precio(nums, debajo):
+    """Factura con el precio unitario en el renglón de abajo («4.320 PC 17.712,00» y debajo «4,10 /1PC»): busca en
+    el renglón cantidad e importe y en el de abajo el precio que los une. Devuelve (palabra_precio, renglón, i, k,
+    cant, precio, importe)."""
+    for o in debajo:
+        for pp in [p for p in o.palabras if p.es_numero]:
+            for i in range(len(nums) - 1):
+                for k in range(len(nums) - 1, i, -1):
+                    for a in nums[i].valores:
+                        for t in nums[k].valores:
+                            for c in pp.valores:
+                                if 1 not in (a, c) and t not in (a, c) and t > a and \
+                                        abs(a * c - t) <= max(0.011, 0.0005 * t):
+                                    return pp, o, i, k, a, c, t
+    return None
+
+
 def _alineadas(filas_nums, tol=4):
     """Posiciones (x0, x1, centro) que se repiten en al menos la mitad de los renglones: columnas de números."""
     def marcas(p):
@@ -467,7 +484,7 @@ CODIGO_EN_TEXTO = re.compile(r"-\s*([A-Z]*\d{5,}[A-Z0-9]*)\b")
 
 def leer_items(renglones):
     """Líneas de una factura (renglones de sus páginas, en orden)."""
-    filas, qlineas = [], set()
+    filas, qlineas, extra = [], set(), {}
     for n, r in enumerate(renglones):
         if TOTAL.search(r.texto) or DEDUCCION.search(r.texto):
             continue
@@ -486,6 +503,15 @@ def leer_items(renglones):
                 q, o, j, k, a, c, tt = par
                 qlineas.add(id(o))
                 filas.append((r, nums, q, j, k, a, c, tt))
+                continue
+            debajo = [o for o in renglones[n + 1:n + 3] if o.pagina == r.pagina and 0 < o.top - r.top < 30
+                      and not TOTAL.search(o.texto)]
+            par = _par_con_precio(nums, debajo)
+            if par:
+                pp, o, i, k, a, c, tt = par
+                qlineas.add(id(o))
+                extra[id(r)] = o
+                filas.append((r, nums + [pp], nums[i], len(nums), k, a, c, tt))
     filas = [f for f in filas if id(f[0]) not in qlineas]
     if not filas:
         return []
@@ -519,6 +545,13 @@ def leer_items(renglones):
         while corte > 0 and (MONEDA.fullmatch(pal[corte - 1].texto) or pal[corte - 1].es_numero and (
                 es_columna(pal[corte - 1]) or pal[corte - 1] in (q, nums[j], nums[k]))):
             corte -= 1
+        # la cantidad después de la descripción: el texto termina antes («Beetroot slices 1080 TR 4.320 PC»), sin
+        # otras cantidades con su unidad pegadas (1080 TR)
+        if q in pal and 2 <= pal.index(q) < corte:
+            corte = pal.index(q)
+            while corte > 2 and (pal[corte - 1].es_numero or re.fullmatch(r"[A-ZÇ]{1,3}\.?", pal[corte - 1].texto)
+                                 and pal[corte - 2].es_numero):
+                corte -= 1
         nro, inicio = "", 0
         if pal and pal[0].es_numero and re.fullmatch(r"\d{1,4}", pal[0].texto) and pal[0] is not q \
                 and (corte > 1 or corte == 0):
@@ -605,6 +638,10 @@ def leer_items(renglones):
                     desc = " ".join(ws[:i_w])
                     break
         hs_fila = hs_fila or next((p.texto for p in nums if re.fullmatch(r"\d{8}", p.texto)), "")
+        if not hs_fila and col_hs and id(r) in extra:
+            # el HS en el renglón de abajo, bajo su columna («200190»)
+            hs_fila = next((p.texto for p in extra[id(r)].palabras if re.fullmatch(r"\d{6,10}", p.texto)
+                            and p.x1 >= col_hs.x0 - 10 and p.x0 <= col_hs.x1 + 30), "")
         if nro_texto and (not nro or nro != nro_texto) and int(nro_texto) == n + (int(lineas[-1].nro) - len(lineas)
                                                                                   if lineas and lineas[-1].nro.isdigit()
                                                                                   else 0):
@@ -667,6 +704,14 @@ def _decimal(texto):
     coma = len(re.findall(r"\d\.\d{3},\d{1,3}(?![\d/])", texto))
     if punto or coma:
         return "." if punto > coma else "," if coma > punto else None
+    # sin miles: «10584,000» (4 cifras antes de la coma: no es separador de miles) o «31,58»; las fechas no cuentan
+    sin_fechas = re.sub(r"\d{1,2}[./]\d{1,2}[./]\d{2,4}", " ", texto)
+    coma = len(re.findall(r"(?<![\d.,])(?:\d{4,},\d{3}|\d+,\d{1,2})(?![\d.,])", sin_fechas))
+    punto = len(re.findall(r"(?<![\d.,])(?:\d{4,}\.\d{3}|\d+\.\d{1,2})(?![\d.,])", sin_fechas))
+    if coma >= 2 and not punto:
+        return ","
+    if punto >= 2 and not coma:
+        return "."
     return None
 
 
@@ -705,7 +750,8 @@ def pesos_por_item(renglones, lineas, obs):
         if n and b:
             col = (n, b)
             continue
-        if not col or TOTAL.search(r.texto):
+        if not col or TOTAL.search(r.texto) or re.search(r"(?i)\b(page|p[aá]gina|seite)\s+\d+\s*(of|de|/|von)\b",
+                                                         r.texto):
             continue
         cn, cb = ((p.x0 + p.x1) / 2 for p in col)
         nums = [p for p in r.palabras if p.es_numero]
@@ -724,6 +770,14 @@ def pesos_por_item(renglones, lineas, obs):
             m = CODIGO_EN_TEXTO.search(junto)
             codigo = m.group(1) if m else ""
         entradas.append((_norm(codigo), _valor(vn.texto, dec), _valor(vb.texto, dec)))
+    # un renglón que repite la suma de los anteriores (el del contenedor) es un subtotal
+    limpias = []
+    for e in entradas:
+        sn, sb = sum(x[1] or 0 for x in limpias), sum(x[2] or 0 for x in limpias)
+        if limpias and e[1] and e[2] and abs(e[1] - sn) < 0.01 and abs(e[2] - sb) < 0.01:
+            continue
+        limpias.append(e)
+    entradas = limpias
     if not entradas:
         return None
     codigos = {_norm(l.codigo) for l in lineas}
@@ -757,10 +811,21 @@ def pesos_por_item(renglones, lineas, obs):
             obs.append(f"Packing list: los {nombre} de los productos suman {suma:,.3f} y el total dice {tot:,.3f}.")
     bultos = _total_en_texto(r"(?i)(?:TOTAL\s+DE\s+BULTOS|TOTAL\s+PACKAGES|TOTAL\s+CAJAS|SAY\s+TOTAL)", texto, dec)
     if not bultos:
-        m = re.search(r"(?i)\b(\d[\d.,]*)\s*(?:CARTONS|CTNS|PACKAGES|PKGS|BULTOS|CAJAS|BOXES)\b", texto)
+        m = re.search(r"(?i)\b(\d[\d.,]*)\s*(?:CARTONS|CTNS|PACKAGES|PKGS|BULTOS|CAJAS|BOXES|TRAYS|BANDEJAS)\b", texto)
         bultos = _valor(m.group(1), dec) if m else None
+    # bruto con los pallets («Total weight including pallets (Net / Gross) 11012,000 kg 16213,280 kg»)
+    m = re.search(r"(?i)includ\w*\s+(?:the\s+)?pallets?\b[^\d\n]*(\d[\d.,]*)\s*kgs?\s*/?\s*(\d[\d.,]*)", texto)
+    bruto_pal = _valor(m.group(2), dec) if m else None
+    bruto_fin = bruto_t or round(suma_b, 3)
+    if bruto_pal and bruto_fin and bruto_fin < bruto_pal <= bruto_fin * 1.5:
+        f_b = bruto_pal / bruto_fin
+        for l in lineas:
+            if l.bruto:
+                l.bruto = round(l.bruto * f_b, 3)
+        obs.append(f"El bruto incluye los pallets: {bruto_pal:,.3f} kg (sin pallets eran {bruto_fin:,.3f} kg).")
+        bruto_t = bruto_pal
     m = re.search(r"(?i)^.*\bPALLETS?\b.*$", texto, re.M)
-    if m and not TOTAL.search(m.group(0)):
+    if m and not TOTAL.search(m.group(0)) and not bruto_pal:
         obs.append(f"Embalaje: «{m.group(0).strip()}». Revisar si los bultos del DUA son las cajas o los pallets.")
     return neto_t or round(suma_n, 3), bruto_t or round(suma_b, 3), bultos
 
@@ -1357,7 +1422,8 @@ def controles_factura(f, renglones):
     cant = round(sum(l.cantidad for l in f.lineas), 2)
     vistos = False
     for r in renglones:
-        if DEDUCCION.search(r.texto):
+        if DEDUCCION.search(r.texto) and not re.search(r"(?i)\bwithout\b|\bsin\s+(descuento|deducci)", r.texto) \
+                and any(v > 0 for p in r.palabras if p.es_numero for v in p.valores):
             f.observaciones.append(f"La factura tiene un descuento o deducción: «{r.texto.strip()}». "
                                    "Revisar si corresponde a esta operación antes de restarlo del valor.")
         if not TOTAL.search(r.texto):

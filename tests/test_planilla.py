@@ -16,11 +16,11 @@ def sin_antecedentes(tmp_path, monkeypatch):
     historial._cache.clear()
 
 
-def _pdf(ruta, paginas):
+def _pdf(ruta, paginas, ancho=595):
     """paginas: [[(x, y, texto)]]"""
     doc = fitz.open()
     for textos in paginas:
-        p = doc.new_page(width=595, height=842)
+        p = doc.new_page(width=ancho, height=842)
         for x, y, t in textos:
             p.insert_text((x, y), t, fontsize=8, fontname="helv")
     doc.save(ruta)
@@ -445,3 +445,33 @@ def test_no_pisa_planilla_existente(tmp_path):
     assert ruta_libre(base, [".xlsx"]).name == "Planilla X (2).xlsx"
     (tmp_path / "Planilla X (2).ods").write_text("editada")
     assert ruta_libre(base, [".xlsx", ".ods"]).name == "Planilla X (3).xlsx"
+
+
+def test_precio_en_renglon_de_abajo_y_packing_con_pallets(tmp_path):
+    # factura alemana: el precio unitario va debajo («4,10 /1PC»), junto al HS; el packing da el bruto con pallets
+    _pdf(tmp_path / "invoice 801.pdf", [[
+        (350, 60, "Invoice 801356989 from Nov 05, 2026"), (60, 80, "Kühnehöfe 11 Hamburg GERMANY"),
+        (60, 100, "URUGUAY"),
+        (50, 150, "Itm"), (77, 150, "Article"), (110, 150, "Description"), (356, 150, "Amount"), (392, 150, "Quantity"),
+        (445, 150, "Net Value EUR"), (510, 150, "Total EUR"),
+        (110, 160, "GTIN"), (191, 160, "HS Code"), (313, 160, "Netto kg"), (367, 160, "Gross kg"), (468, 160, "Price per"),
+        (49, 185, "001"), (77, 185, "43050"), (110, 185, "Beetroot slices, 2650ml,jars"), (358, 185, "1080"),
+        (379, 185, "TR"), (400, 185, "4.320"), (423, 185, "PC"), (461, 185, "17.712,00"), (507, 185, "17.712,00"),
+        (110, 196, "40804323"), (195, 196, "200190"), (303, 196, "10.584,000"), (352, 196, "15.785,280"),
+        (450, 196, "4,10"), (468, 196, "/1PC"),
+        (195, 240, "Invoice amount EUR"), (507, 240, "17.712,00")]])
+    _pdf(tmp_path / "Packing List 801.pdf", [[
+        (400, 50, "Packing List"), (693, 70, "801356989"),
+        (729, 100, "Total Net"), (776, 100, "Total Gross"),
+        (49, 120, "1"), (65, 120, "43050"), (87, 120, "Beetroot slices"), (584, 120, "1080"), (615, 120, "20019097"),
+        (727, 120, "10584,000"), (776, 120, "15785,280"),
+        (95, 140, "Cont. No.: FBIU 023154-3"), (590, 140, "1080 trays"), (729, 140, "10584,000"), (779, 140, "15785,280"),
+        (500, 160, "Total weight including pallets (Net / Gross)"), (726, 160, "11012,000 kg"), (775, 160, "16213,280 kg"),
+        (752, 200, "Page 1 of 1")]], ancho=850)
+    (f,) = leer_carpeta(tmp_path, usar_ocr=False)
+    (l,) = f.lineas
+    assert (l.codigo, l.descripcion, l.cantidad, l.precio, l.importe) == \
+        ("43050", "Beetroot slices, 2650ml,jars", 4320, 4.1, 17712)
+    assert l.ncm_factura == "200190" and l.ncm == "2001.90.00.00"
+    assert (l.neto, l.bruto) == (10584, 16213.28)
+    assert not any("total igual" in o or "descuento" in o for o in f.observaciones)
