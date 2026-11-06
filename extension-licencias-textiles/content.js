@@ -103,7 +103,8 @@
     const hallados = [];
     for (const doc of documentos()) {
       for (const el of doc.querySelectorAll(SEL_CLICABLES)) {
-        const v = el.tagName === 'IMG' ? el.alt : textoDe(el);
+        let v = el.tagName === 'IMG' ? el.alt : textoDe(el);
+        if (!v.trim() && el.title) v = el.title;
         if (v.length > texto.length + 40) continue;
         if (norm(v) === t && visible(el)) hallados.push(el);
       }
@@ -152,6 +153,10 @@
           .find((e) => norm(textoDe(e)) === 'cerrar' && visible(e));
         if (cerrar) {
           if ((caja.innerText || '').length > 2500) break;
+          const emergente = caja.closest('.mdlContainer, [class*="modal" i], [class*="dialog" i], [class*="popup" i], [class*="message" i], [class*="mensaje" i]')
+            || ['fixed', 'absolute'].includes(caja.ownerDocument.defaultView.getComputedStyle(caja).position);
+          if (!emergente) break;
+          if (caja.closest('#mdlDocumentContainer')) break;
           const texto = (caja.innerText || '').replace(/^\s*Mensajes\s*/i, '').replace(/\s*Cerrar\s*$/i, '').trim();
           if (texto) return { texto, cerrar };
           break;
@@ -179,9 +184,12 @@
   function campoDe(etiqueta) {
     const e = norm(etiqueta);
     for (const doc of documentos()) {
-      for (const el of doc.querySelectorAll('label, td, span, div, th')) {
+      const cands = [...doc.querySelectorAll('label, td, span, div, th')].filter((el) => {
         const t = norm(el.innerText || el.textContent);
-        if (!t.startsWith(e) || t.length > e.length + 6 || !visible(el)) continue;
+        return t.startsWith(e) && t.length <= e.length + 6 && visible(el);
+      });
+      // la etiqueta más interna, no el contenedor que solo tiene esa etiqueta adentro
+      for (const el of cands.filter((c) => !cands.some((o) => o !== c && c.contains(o)))) {
         let fila = el.closest('tr') || el.parentElement;
         for (let i = 0; fila && i < 3; fila = fila.parentElement, i++) {
           const inp = fila.querySelector('input:not([type=hidden]):not([type=button]):not([type=checkbox]), textarea');
@@ -306,43 +314,64 @@
     await sleep(1200);
   }
 
-  function inputArchivoDocumentos() {
-    const nuevo = buscarTexto('Nuevo documento')[0];
-    if (!nuevo) return null;
-    const doc = nuevo.ownerDocument;
-    const ins = [...doc.querySelectorAll('input[type=file]')];
-    if (!ins.length) return { nuevo, input: null };
-    ins.sort((a, b) => cercania(a, 'Tipo de documento') - cercania(b, 'Tipo de documento'));
-    return { nuevo, input: ins[0] };
-  }
-
-  /** El botón "Seleccionar archivo": por su texto, o el selector de archivo junto a "Archivo Excel". */
-  function botonSeleccionar() {
-    const t = buscarTexto('Seleccionar archivo')[0];
-    if (t) return t;
-    if (buscarTexto('Nuevo documento').length) return null;
-    const cands = [];
-    for (const doc of documentos()) {
-      for (const inp of doc.querySelectorAll('input[type=file]')) {
-        const c = cercania(inp, 'Archivo Excel');
-        if (c < 600) cands.push([c, inp]);
+  /** Primer elemento visible (en cualquier marco) que cumple el selector CSS. */
+  function css(sel, filtro) {
+    // los selectores separados por coma se prueban en orden (el primero tiene prioridad)
+    for (const uno of sel.split(',')) {
+      for (const doc of documentos()) {
+        for (const el of doc.querySelectorAll(uno.trim())) if (visible(el) && (!filtro || filtro(el))) return el;
       }
     }
-    cands.sort((a, b) => a[0] - b[0]);
-    if (!cands.length) return null;
-    const inp = cands[0][1];
-    // si el input está oculto, probar con un botón o etiqueta visible a su lado
-    if (!inp.getClientRects().length) {
-      const lab = inp.id && inp.ownerDocument.querySelector(`label[for="${window.CSS.escape(inp.id)}"]`);
-      if (lab && visible(lab)) return lab;
-    }
-    return inp;
+    return null;
   }
 
-  function nombreVisibleEnModal(nombre) {
-    const n = norm(nombre);
-    return documentos().some((doc) => [...doc.querySelectorAll('span, div, a, td, li, label, p')]
-      .some((el) => norm(el.innerText || el.textContent).includes(n) && cercania(el, 'Tipo de documento') < 3000 && visible(el)));
+  /** El campo "Archivo Excel" del formulario (contenedor .field de Apia). */
+  function campoArchivoExcel() {
+    for (const doc of documentos()) {
+      for (const lab of doc.querySelectorAll('.asLabelFileinput, .asLabel, span, label')) {
+        if (!norm(lab.textContent).startsWith('archivo excel') || !visible(lab)) continue;
+        const f = lab.closest('.field') || lab.parentElement && lab.parentElement.parentElement;
+        if (f) return f;
+      }
+    }
+    return null;
+  }
+
+  /** La ventana "Documentos" abierta: {modal, input, doc}. */
+  function ventanaDocumentos() {
+    const modal = css('#mdlDocumentContainer', (m) => !m.classList.contains('hiddenModal'));
+    if (modal) {
+      return { modal, doc: modal.ownerDocument, input: modal.querySelector('#documentModalDocFile, input[type=file]') };
+    }
+    // otra forma de la ventana: por el texto "Nuevo documento"
+    const nuevo = buscarTexto('Nuevo documento')[0];
+    if (!nuevo) return null;
+    let caja = nuevo.parentElement;
+    while (caja && !norm(caja.innerText).includes('tipo de documento')) caja = caja.parentElement;
+    caja = caja || nuevo.ownerDocument.body;
+    const ins = [...nuevo.ownerDocument.querySelectorAll('input[type=file]')];
+    ins.sort((a, b) => cercania(a, 'Tipo de documento') - cercania(b, 'Tipo de documento'));
+    return { modal: caja, doc: nuevo.ownerDocument, input: ins[0] || null };
+  }
+
+  /** El botón "Seleccionar archivo" (ícono de subir de Apia) del campo "Archivo Excel". */
+  function botonSeleccionar() {
+    const campo = campoArchivoExcel();
+    if (campo) {
+      const ic = [...campo.querySelectorAll('.docUploadIcon, [title="Subir archivo"]')].find(visible);
+      if (ic) return ic;
+    }
+    const ic = css('.docUploadIcon, [title="Subir archivo"]');
+    if (ic) return ic;
+    return buscarTexto('Seleccionar archivo')[0] || buscarTexto('Subir archivo')[0] || null;
+  }
+
+  /** ¿El archivo ya quedó en el campo "Archivo Excel"? */
+  function archivoEnCampo(nombre) {
+    const campo = campoArchivoExcel();
+    if (campo && norm(campo.innerText || campo.textContent).includes(norm(nombre))) return true;
+    if (campo && campo.querySelector('.docDownloadIcon:not(.docDownloadIconDisabled)')) return true;
+    return buscarTexto(nombre).some((e) => !ventanaDocumentos() || !ventanaDocumentos().modal.contains(e));
   }
 
   async function subirArchivo(file) {
@@ -355,70 +384,47 @@
       const s = selectTipoIngreso();
       if (s) {
         const w = s.ownerDocument.defaultView;
-        s.focus();
         s.dispatchEvent(new w.Event('change', { bubbles: true }));
-        s.dispatchEvent(new w.Event('blur', { bubbles: true }));
       }
       btn = await esperar(botonSeleccionar, 25000, 'el botón "Seleccionar archivo"');
     }
-    log(`Botón de archivo: <${btn.tagName.toLowerCase()}${btn.type ? ' type=' + btn.type : ''}>`);
     clic(btn);
-    let r = null;
-    try {
-      r = await esperar(inputArchivoDocumentos, btn.type === 'file' ? 6000 : 30000, 'la ventana "Documentos"');
-    } catch (e) {
-      if (e.message === 'DETENIDO' || btn.type !== 'file') throw e;
-      // selector de archivo común: entregarle el archivo directo
-      const w = btn.ownerDocument.defaultView;
-      const dt0 = new w.DataTransfer();
-      dt0.items.add(file);
-      btn.files = dt0.files;
-      btn.dispatchEvent(new w.Event('input', { bubbles: true }));
-      btn.dispatchEvent(new w.Event('change', { bubbles: true }));
-      const res = await esperar(() => inputArchivoDocumentos()
-        || (buscarTexto(file.name).length && !buscarTexto('Nuevo documento').length && 'directo'),
-      45000, `que el sitio tome el archivo ${file.name}`);
-      if (res === 'directo') return;
-      r = res;
-    }
-    await sleep(600);
-    const win = r.nuevo.ownerDocument.defaultView;
+    const v = await esperar(ventanaDocumentos, 30000, 'la ventana "Documentos"');
+    await sleep(700);
+    const win = v.doc.defaultView;
     const dt = new win.DataTransfer();
     dt.items.add(file);
-    let entregado = false;
-    if (r.input) {
-      r.input.files = dt.files;
-      r.input.dispatchEvent(new win.Event('input', { bubbles: true }));
-      r.input.dispatchEvent(new win.Event('change', { bubbles: true }));
-      entregado = true;
+    if (v.input) {
+      v.input.files = dt.files;
+      v.input.dispatchEvent(new win.Event('input', { bubbles: true }));
+      v.input.dispatchEvent(new win.Event('change', { bubbles: true }));
     } else {
       // sin <input type=file>: soltar el archivo sobre la zona de subida (nube)
-      const doc = r.nuevo.ownerDocument;
-      const zonas = [...doc.querySelectorAll('[class*="drop" i], [class*="upload" i], [id*="drop" i], [id*="upload" i]')]
-        .filter(visible);
-      const celda = r.nuevo.closest('td, div');
-      if (celda && celda.nextElementSibling) zonas.push(celda.nextElementSibling);
+      const zonas = [...v.modal.querySelectorAll('#mdlDropArea, .dropIcon, [class*="drop" i]')];
+      if (!zonas.length) throw new Error('No encontré dónde subir el archivo en la ventana "Documentos"');
       for (const z of zonas) {
         for (const ev of ['dragenter', 'dragover', 'drop']) {
           z.dispatchEvent(new win.DragEvent(ev, { bubbles: true, cancelable: true, dataTransfer: dt }));
         }
-        entregado = true;
       }
     }
-    if (!entregado) throw new Error('No encontré dónde subir el archivo en la ventana "Documentos"');
-    await esperar(() => nombreVisibleEnModal(file.name), 60000, `el archivo ${file.name} en la ventana "Documentos"`);
+    const n = norm(file.name);
+    await esperar(() => { const w = ventanaDocumentos(); return w && norm(w.modal.innerText).includes(n); },
+      60000, `el archivo ${file.name} en la ventana "Documentos"`);
     await sleep(800);
     const conf = await esperar(() => {
-      const c = buscarTexto('Confirmar').filter((e) => cercania(e, 'Tipo de documento') < 3000);
-      c.sort((a, b) => cercania(a, 'Tipo de documento') - cercania(b, 'Tipo de documento'));
-      return c[0];
+      const w = ventanaDocumentos();
+      if (!w) return null;
+      const b = w.modal.querySelector('#btnConfirmDocumentModal');
+      if (b && visible(b)) return b;
+      return buscarTexto('Confirmar').filter((e) => w.modal.contains(e))[0];
     }, 15000, 'el "Confirmar" de la ventana "Documentos"');
     clic(conf);
-    await esperar(() => !buscarTexto('Nuevo documento').length, 30000, 'que se cierre la ventana "Documentos"');
+    await esperar(() => !ventanaDocumentos(), 30000, 'que se cierre la ventana "Documentos"');
   }
 
   async function importar(nombre) {
-    await esperar(() => buscarTexto('Descargar archivo').length || buscarTexto(nombre).length, 30000,
+    await esperar(() => archivoEnCampo(nombre), 30000,
       `el archivo ${nombre} junto a "Archivo Excel"`);
     await sleep(500);
     const imp = await esperar(() => buscarTexto('Importar')[0], 15000, 'el botón "Importar"');
@@ -441,7 +447,10 @@
   }
 
   function botonConfirmarFinal() {
-    const c = buscarTexto('Confirmar').filter((e) => cercania(e, 'Tipo de documento') >= 3000 || !buscarTexto('Nuevo documento').length);
+    const b = css('#btnConf button, #btnConf');
+    if (b && !ventanaDocumentos()) return b;
+    const v = ventanaDocumentos();
+    const c = buscarTexto('Confirmar').filter((e) => !v || !v.modal.contains(e));
     c.sort((a, b) => {
       const ra = a.getBoundingClientRect(); const rb = b.getBoundingClientRect();
       return rb.width * rb.height - ra.width * ra.height;
@@ -467,6 +476,13 @@
     const m = leerMensaje();
     if (m && m.cerrar) { clic(m.cerrar); await sleep(800); }
     if (buscarTexto('Licencia Textiles').length) return;
+    const cerrarSol = css('#btnCloseTab button, #btnCloseTab');
+    if (cerrarSol) {
+      clic(cerrarSol);
+      try { await esperar(() => buscarTexto('Licencia Textiles').length, 10000, 'inicio'); return; } catch (e) {
+        if (e.message === 'DETENIDO') throw e;
+      }
+    }
     // cerrar la pestaña "Ingresar solicitud textiles x"
     const x = buscarTexto('x').concat(buscarTexto('×'))
       .filter((e) => cercania(e, 'Ingresar solicitud textiles') < 120);
