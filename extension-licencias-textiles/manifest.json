@@ -1,0 +1,15 @@
+{
+  "manifest_version": 3,
+  "name": "elGonza · Licencias textiles DNI",
+  "version": "1.0.0",
+  "description": "Sube varias planillas de licencia textil al sitio de DNI (MIEM) y devuelve una planilla con el VU de cada una.",
+  "permissions": ["storage", "unlimitedStorage"],
+  "content_scripts": [
+    {
+      "matches": ["https://tramitesdni.miem.gub.uy/*"],
+      "js": ["lib/xlsx.mini.min.js", "content.js"],
+      "run_at": "document_idle",
+      "all_frames": false
+    }
+  ]
+}

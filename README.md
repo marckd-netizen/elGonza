@@ -127,3 +127,9 @@ Los documentos de clientes no se suben al repositorio.
 Cada regla es un método `r_NN_nombre` de `Revision` en `elgonza/reglas.py`, donde `NN` es el número del
 libro de criterios. Usa `self.b` (el borrador ya leído) y `self.docs` (los documentos con su texto) y llama a
 `self.agregar(regla, tema, resultado, título, detalle)`.
+
+## Licencias textiles DNI (extensión de Chrome)
+
+En `extension-licencias-textiles/` hay una extensión de Chrome que sube varias planillas de licencia textil al sitio de DNI
+con la sesión abierta del usuario y devuelve una planilla con el VU de cada archivo. Instalación y uso en
+[extension-licencias-textiles/LEEME.md](extension-licencias-textiles/LEEME.md).
