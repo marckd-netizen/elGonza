@@ -319,8 +319,8 @@ def origen_expreso(texto):
     """País del origen dicho expresamente en el texto («MADE IN CHINA», «COUNTRY OF ORIGIN: BRAZIL»), sin contar
     el puerto de origen."""
     t = _sin_tildes_mayus(texto)
-    for m in re.finditer(r"(?<!PORT )(?<!PUERTO DE )(?<!PORTO DE )(COUNTRY OF ORIGIN|ORIGIN OF (?:THE )?GOODS|"
-                         r"PAIS DE ORIGEN|MADE IN|ORIGEN|ORIGIN)\b[^A-Z\n]{0,4}([A-Z .]{2,30})", t):
+    for m in re.finditer(r"(?<!PORT )(?<!PUERTO DE )(?<!PORTO DE )(COUNTRY OF ORIGIN(?: OF (?:THE )?GOODS)?|"
+                         r"ORIGIN OF (?:THE )?GOODS|PAIS DE ORIGEN|MADE IN|ORIGEN|ORIGIN)\b[^A-Z]{0,4}([A-Z .]{2,30})", t):
         p = _PAIS.match(m.group(2).strip())
         if p:
             return PAISES[p.group(1)]
@@ -783,6 +783,8 @@ PESO_BRUTO = re.compile(r"(?i)\b(GROSS\s*WEIGHT|PESO\s*BRUTO|PESO\s*BRUTO\s*TOTA
 
 def _tipo_pagina(renglones, anterior):
     t = " ".join(r.texto for r in renglones[:40]).upper()
+    if re.search(r"CERTIFICATE\s+OF\s+ORIGIN|CERTIFICADO\s+DE\s+ORIGEN", t):
+        return "certificado"
     if re.search(r"PACKING|PACKAGE LIST|LISTA DE EMPAQUE|EMPAQUE", t):
         return "packing"
     if re.search(r"INVOICE|FACTURA", t):
@@ -832,10 +834,12 @@ def prorratear_peso(lineas, bruto, neto_pct=0.91):
 def leer_carpeta(carpeta, usar_ocr=True, avisar=None):
     """Facturas de la carpeta (en orden de archivo), cada una con sus líneas, pesos y observaciones."""
     carpeta = Path(carpeta)
+    from .excel import EXTENSIONES as EXCEL
     archivos = sorted(p for p in carpeta.iterdir() if p.is_file()
-                      and p.suffix.lower() in (".pdf", ".tif", ".tiff", ".jpg", ".jpeg", ".png")
-                      and not SALTEAR_ARCHIVO.search(p.stem))
+                      and p.suffix.lower() in (".pdf", ".tif", ".tiff", ".jpg", ".jpeg", ".png") + EXCEL
+                      and not SALTEAR_ARCHIVO.search(p.stem) and not p.name.startswith("~$"))
     facturas, packings, transportes = [], [], []   # packings: (texto, renglones); transportes: (archivo, texto)
+    packings_excel = []
     for a in sorted(p for p in carpeta.iterdir() if p.is_file() and p.suffix.lower() == ".pdf"
                     and TRANSPORTE_ARCHIVO.search(p.stem) and not re.search(r"(?i)borrador|planilla", p.stem)):
         try:
@@ -845,6 +849,9 @@ def leer_carpeta(carpeta, usar_ocr=True, avisar=None):
     for a in archivos:
         if avisar:
             avisar(f"Leyendo {a.name}…")
+        if a.suffix.lower() in EXCEL:
+            _leer_excel(a, facturas, packings_excel)
+            continue
         tipo, bloques = None, []
         for renglones in paginas_de(a, usar_ocr):
             nuevo = _tipo_pagina(renglones, tipo)
@@ -864,6 +871,8 @@ def leer_carpeta(carpeta, usar_ocr=True, avisar=None):
             if t == "transporte":
                 transportes.append((a.name, texto))
                 continue
+            if t == "certificado":
+                continue
             lineas = leer_items(rs)
             if not lineas:
                 continue
@@ -871,16 +880,24 @@ def leer_carpeta(carpeta, usar_ocr=True, avisar=None):
             f.texto = texto
             controles_factura(f, rs)
             facturas.append(f)
+    # la misma factura en Excel y en PDF: vale la de Excel
+    de_excel = {_norm(f.numero) for f in facturas if getattr(f, "excel", False) and f.numero}
+    facturas = [f for f in facturas if getattr(f, "excel", False) or _norm(f.numero) not in de_excel]
     for f in facturas:
         propios = [rs for texto, rs in packings if f.numero and _norm(f.numero) in _norm(texto)]
-        if not propios and len(facturas) == 1:
+        propios_x = [h for h in packings_excel if f.numero and _norm(f.numero) in _norm(h.texto)]
+        if not propios and not propios_x and len(facturas) == 1:
             propios = [rs for _, rs in packings]
-        if propios:
+            propios_x = packings_excel
+        if propios_x:
+            f.neto_total, f.bruto_total, f.bultos = pesos_excel(propios_x, f.lineas, f.observaciones)
+        elif propios:
             f.neto_total, f.bruto_total, f.bultos = pesos_packing([r for rs in propios for r in rs], f.lineas,
                                                                    f.observaciones)
         else:
             f.sin_packing = True
-        _origen_factura(f, [texto for texto, rs in packings if any(rs is x for x in propios)])
+        _origen_factura(f, [texto for texto, rs in packings if any(rs is x for x in propios)]
+                        + [h.texto for h in propios_x])
         hs = {re.sub(r"\D", "", m.group(1)) for m in HS_EN_ENCABEZADO.finditer(getattr(f, "texto", ""))}
         hs = {h for h in hs if len(h) >= 6}
         if len(hs) == 1:
@@ -902,6 +919,114 @@ def leer_carpeta(carpeta, usar_ocr=True, avisar=None):
                                                           getattr(l, "ncm_factura", ""), importador, proveedor)
     _pesos_sin_packing(facturas, transportes)
     return facturas
+
+
+def _leer_excel(ruta, facturas, packings_excel):
+    """Facturas y packing lists de un .xlsx."""
+    from .excel import leer_hojas, total_de
+    for h in leer_hojas(ruta):
+        if h.tipo == "packing":
+            packings_excel.append(h)
+            continue
+        lineas = []
+        for n, it in enumerate(h.items, 1):
+            if not it["importe"]:
+                continue
+            cant, precio, importe = it["cant"], it["precio"], it["importe"]
+            if not cant and precio:
+                cant = round(importe / precio, 3)
+            if not precio and cant:
+                precio = round(importe / cant, 4)
+            desc = " ".join(x for x in (it["descripcion"], it["tejido"]) if x)
+            l = Linea(it["nro"] or str(n), it["codigo"], desc, cant or 0, precio or 0, round(importe, 2))
+            l.ncm_factura = it["hs"] if len(it["hs"]) >= 6 else ""
+            lineas.append(l)
+        if not lineas:
+            continue
+        f = Factura(ruta.name, _numero_factura(h.texto), _fecha(h.texto), lineas)
+        f.texto, f.excel = h.texto, True
+        suma = round(sum(l.importe for l in lineas), 2)
+        total = total_de(h, "importe")
+        if total is not None and abs(total - suma) > 0.005:
+            f.observaciones.append(f"La suma de los ítems da {suma:,.2f} y el total de la factura dice {total:,.2f}.")
+        elif total is None:
+            f.observaciones.append(f"No encontré en la factura un total igual a la suma de los ítems ({suma:,.2f}).")
+        for l in lineas:
+            if l.cantidad and l.precio and abs(l.cantidad * l.precio - l.importe) > max(0.011, 0.0005 * l.importe):
+                f.observaciones.append(f"Ítem {l.nro}: {l.cantidad:g} × {l.precio:g} no da {l.importe:,.2f}.")
+        facturas.append(f)
+
+
+def pesos_excel(hojas, lineas, obs):
+    """Neto y bruto de packing lists en Excel. Fila por fila si coinciden con la factura (mismas cantidades, en
+    orden); si no, sumados por código y repartidos por cantidad; si no, el total repartido por cantidad."""
+    from .excel import total_de
+    filas = [dict(it) for h in hojas for it in h.items if it.get("neto") or it.get("bruto")]
+    for clave, rol in (("neto", "neto_total"), ("bruto", "bruto_total")):
+        total = sum(t for t in (total_de(h, rol) for h in hojas) if t is not None) or None
+        suma = round(sum(r[clave] or 0 for r in filas), 3)
+        ceros = [r for r in filas if not r[clave]]
+        if total and ceros and total - suma > 0.005:
+            falta = round(total - suma, 3)
+            cant = sum(r["cant"] or 0 for r in ceros) or len(ceros)
+            for r in ceros:
+                r[clave] = round(falta * ((r["cant"] or 1) / cant), 3)
+            obs.append(f"El packing list tiene {'neto' if clave == 'neto' else 'bruto'} 0 en "
+                       + ", ".join(r["codigo"] or r["nro"] for r in ceros)
+                       + f": se completa con la diferencia contra el total ({falta:,.2f} kg).")
+        elif ceros and any(r["neto" if clave == "bruto" else "bruto"] for r in ceros):
+            otros = [r for r in filas if r["neto"] and r["bruto"]]
+            if otros:
+                k = sum(r["bruto"] for r in otros) / sum(r["neto"] for r in otros)
+                est = [(r, round(r["neto"] * k if clave == "bruto" else r["bruto"] / k, 2)) for r in ceros]
+                obs.append(f"El packing list tiene {'neto' if clave == 'neto' else 'bruto'} 0 en "
+                           + ", ".join(f"{r['codigo'] or r['nro']} (debería rondar {e:,.2f} kg)" for r, e in est)
+                           + f", y su total ({suma:,.2f} kg) no lo incluye. Revisar con el conocimiento y el seguro.")
+        elif total and abs(total - suma) > 0.01:
+            obs.append(f"En el packing list la suma del {'neto' if clave == 'neto' else 'bruto'} por renglón "
+                       f"({suma:,.2f}) no da el total ({total:,.2f}).")
+    bultos = sum(t for t in (total_de(h, "bultos") for h in hojas) if t is not None) or \
+        sum(r["bultos"] or 0 for r in filas) or None
+    if not bultos:
+        m = re.search(r"(?i)TOTAL\s+(?:NUMBER\s+OF\s+)?(?:CARTONS|CTNS|PACKAGES|BULTOS)\s*:?\s*(\d+)",
+                      " ".join(h.texto for h in hojas))
+        bultos = float(m.group(1)) if m else None
+    if not filas:
+        obs.append("El packing list en Excel no tiene pesos por renglón: neto y bruto quedan vacíos.")
+        return None, None, bultos
+    if len(filas) == len(lineas) and all(abs((r["cant"] or 0) - l.cantidad) < 0.01 for r, l in zip(filas, lineas)):
+        for r, l in zip(filas, lineas):
+            l.neto, l.bruto = round(r["neto"] or 0, 2), round(r["bruto"] or 0, 2)
+    else:
+        por_codigo = {}
+        for r in filas:
+            k = _norm(r["codigo"])
+            por_codigo.setdefault(k, [0, 0])
+            por_codigo[k][0] += r["neto"] or 0
+            por_codigo[k][1] += r["bruto"] or 0
+        if all(_norm(l.codigo) in por_codigo for l in lineas):
+            grupos = {}
+            for l in lineas:
+                grupos.setdefault(_norm(l.codigo), []).append(l)
+            for k, ls in grupos.items():
+                _repartir(ls, *por_codigo[k])
+            obs.append("Neto y bruto: el packing list no sigue los renglones de la factura; se sumaron por código y "
+                       "se repartieron por cantidad.")
+        else:
+            _repartir(lineas, sum(v[0] for v in por_codigo.values()), sum(v[1] for v in por_codigo.values()))
+            obs.append("Neto y bruto: el packing list no se pudo unir renglón a renglón con la factura; el total se "
+                       "repartió por cantidad.")
+    return round(sum(l.neto or 0 for l in lineas), 2), round(sum(l.bruto or 0 for l in lineas), 2), bultos
+
+
+def _repartir(lineas, neto, bruto):
+    cant = sum(l.cantidad for l in lineas) or 1
+    for l in lineas:
+        l.neto = round(neto * l.cantidad / cant, 2)
+        l.bruto = round(bruto * l.cantidad / cant, 2)
+    mayor = max(lineas, key=lambda l: l.cantidad)
+    mayor.neto = round(mayor.neto + round(neto - sum(l.neto for l in lineas), 2), 2)
+    mayor.bruto = round(mayor.bruto + round(bruto - sum(l.bruto for l in lineas), 2), 2)
 
 
 def _pesos_sin_packing(facturas, transportes):

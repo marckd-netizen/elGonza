@@ -135,6 +135,15 @@ def sugerir(codigo, descripcion, ancho_mm=None, ncm_factura="", importador="", p
         return _verificar(previo[0], previo[1], previo[2])
     if previo and not ncm_factura and previo[3] >= 0.6 and previo[0] in arancel():
         return _verificar(previo[0], previo[1], previo[2])
+    # partidas de la factura que no cuadran con la descripción (6111 es para bebés, no para niños de 6 a 16)
+    d0 = re.sub(r"\D", "", ncm_factura or "")
+    todo = f"{codigo or ''} {descripcion or ''}"
+    if d0.startswith("6111") and re.search(r"(?i)\bKIDS?\b|NIÑ|\bCHILD|JUNIOR|TEEN", todo) \
+            and not re.search(r"(?i)\bBAB(Y|IES)\b|BEB[EÉ]|INFANT", todo):
+        regla = _por_reglas(codigo, descripcion, ancho_mm)
+        if regla[0]:
+            return regla[0], regla[1], (f"La factura dice HS {d0[:4]}.{d0[4:6]} (prendas para bebés), pero la "
+                                        f"descripción es de niños: va como prenda común. " + regla[2])
     if ncm_factura:
         d = re.sub(r"\D", "", ncm_factura)
         legible = f"{d[:4]}.{d[4:6]}.{d[6:]}"
@@ -142,12 +151,12 @@ def sugerir(codigo, descripcion, ancho_mm=None, ncm_factura="", importador="", p
         if len(d) == 10:
             ops = [k for k in ops if k.replace(".", "") == d] or ops
         if len(ops) == 1:
-            return _verificar(ops[0], "", f"NCM de la factura ({legible}); tiene una sola apertura nacional.")
+            return _verificar(ops[0], NOMBRE_PARTIDA.get(ops[0][:4], ""), f"NCM de la factura ({legible}); tiene una sola apertura nacional.")
         if ops:
             t = arancel()
             elegido = next((k for k in ops if t[k].descripcion.lower().startswith(("las demás", "los demás"))), ops[0])
             otras = "; ".join(f"{k}: {t[k].descripcion}" for k in ops)
-            return _verificar(elegido, "", f"NCM de la factura ({legible}), con varias aperturas nacionales: {otras}. "
+            return _verificar(elegido, NOMBRE_PARTIDA.get(elegido[:4], ""), f"NCM de la factura ({legible}), con varias aperturas nacionales: {otras}. "
                                            "Elegir la que corresponda.")
         # un HS code de otro país (4901.99.9000 de EE.UU.) solo coincide en los primeros 6 dígitos
         seis = sorted(k for k in arancel() if len(k) == 13 and k.replace(".", "").startswith(d[:6])) \
@@ -212,9 +221,16 @@ def _por_reglas(codigo, descripcion, ancho_mm):
 # Van de lo más específico a lo más general; gana la primera que coincide.
 # nombre en español por partida, para la columna DESCRIPCION cuando el NCM sale del HS code de la factura
 NOMBRE_PARTIDA = {"4901": "LIBRO", "4902": "PUBLICACION PERIODICA", "4903": "LIBRO PARA COLOREAR",
-                  "4909": "TARJETAS POSTALES IMPRESAS", "4911": "IMPRESOS"}
+                  "4909": "TARJETAS POSTALES IMPRESAS", "4911": "IMPRESOS", "4202": "BOLSO",
+                  "6109": "REMERA DE PUNTO", "6111": "PRENDA DE PUNTO PARA BEBE",
+                  "9401": "ASIENTO", "9403": "MUEBLE"}
 
 REGLAS = [
+    # capítulo 61: prendas de punto
+    (r"(t-?shirt|\btee\b|camiseta|remera).*(cotton|algod)|(cotton|algod).*(t-?shirt|\btee\b|camiseta|remera)",
+     "6109.10.00.00", "REMERA DE PUNTO DE ALGODON", "T-shirts y camisetas de punto, de algodón (6109.10)."),
+    (r"t-?shirt|\btee\b|camiseta|remera", "6109.90.00.00", "REMERA DE PUNTO",
+     "T-shirts y camisetas de punto, de otras materias (6109.90). Si son de algodón van en 6109.10."),
     # capítulo 49: libros e impresos
     (r"colou?ring book|libros? para colorear|para colorear|picture book|sticker book", "4903.00.00.00",
      "LIBRO PARA COLOREAR", "Libro de estampas o para colorear, para niños (4903). Si no es para niños va en 4901."),

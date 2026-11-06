@@ -338,3 +338,38 @@ def test_sin_packing_reparte_el_peso_de_la_guia(tmp_path):
     assert [(l.bruto, l.neto) for l in f.lineas] == [(5.71, 5.2), (4.29, 3.9)]
     assert f.bruto_total == 10 and f.neto_total == 9.1
     assert any("91 %" in o for o in f.observaciones)
+
+
+def _xlsx(ruta, filas):
+    wb = openpyxl.Workbook()
+    for f in filas:
+        wb.active.append(f)
+    wb.save(ruta)
+
+
+def test_factura_y_packing_en_excel(tmp_path):
+    """Ítems en dos filas (descripción arriba, números abajo), HSN por ítem y packing con una celda de dos líneas."""
+    enc = [["INVOICE"], ["EXPORTER", None, None, "Invoice No. & Date"], ["LICHEE CLOTHING", None, None, None],
+           [None, None, None, "LCI/40/2026-27 DT. 06-10-2026"], ["Country of Origin of Goods\nINDIA"]]
+    factura = enc + [
+        ["Sno.", "Article", "Description", "Composition", "HSN Code", "Pcs", "USD\nPER Garment", "Amount IN\nUSD"],
+        [1, "KID GIRL 1", "KNITTED KID GIRL", "100 % COTTON", 61112000],
+        [None, None, "TSHIRT", None, None, 620, 2.15, 1333],
+        [2, "BABY BOY 1", "KNITTED BABY BOY", "100 % COTTON", 61112000],
+        [None, None, "TSHIRT", None, None, 100, 1.9, 190],
+        ["Amount Chargeble( in words )\nTOTAL NUMBER OF CARTONS : 72", None, None, None, None, 720, "TOTAL", 1523]]
+    packing = [["PACKING LIST"]] + enc[1:] + [
+        ["Sno.", "Article", "Description", "No. Of Box", "Total Pcs", "Net Wt Per Ctn", "Total Nt Wt", "Total Gr Wt"],
+        ["1\n2", "KID GIRL 1\nBABY BOY 1", "TSHIRT", "62\n10", "620\n100", "1.33\n0.65", "82.460\n6.5", "105.4\n10"],
+        [None, None, None, 72, 720, None, 88.96, 115.4]]
+    _xlsx(tmp_path / "LCI 40.xlsx", factura)
+    _xlsx(tmp_path / "LCI 40 PACKING LIST.xlsx", packing)
+    f = leer_carpeta(tmp_path, usar_ocr=False)[0]
+    assert (f.numero, f.fecha) == ("LCI/40/2026-27", "06/10/2026")
+    assert [(l.codigo, l.cantidad, l.precio, l.importe, l.neto, l.bruto) for l in f.lineas] == [
+        ("KID GIRL 1", 620, 2.15, 1333, 82.46, 105.4), ("BABY BOY 1", 100, 1.9, 190, 6.5, 10)]
+    assert f.lineas[0].descripcion == "KNITTED KID GIRL TSHIRT 100 % COTTON"
+    assert f.bultos == 72 and {l.origen for l in f.lineas} == {"INDIA"}
+    # 6111 es para bebés: la remera de niña va en 6109.10; la de bebé queda en 6111.20
+    assert [l.ncm for l in f.lineas] == ["6109.10.00.00", "6111.20.00.00"]
+    assert not any("total igual" in o for o in f.observaciones)
