@@ -1497,6 +1497,16 @@ def _ruta_preferencias():
     return d / "preferencias.json"
 
 
+def ruta_libre(base, exts):
+    """Nunca pisa una planilla que ya está (puede tener cambios hechos a mano): si existe, «Planilla X (2)», (3)…"""
+    base = Path(base)
+    ruta, n = base, 1
+    while any(ruta.with_suffix(e).exists() for e in exts):
+        n += 1
+        ruta = base.with_name(f"{base.stem} ({n}){base.suffix}")
+    return ruta
+
+
 def planilla_de_carpeta(carpeta, salida=None, usar_ocr=True, avisar=print, formato=None):
     """Lee la carpeta y guarda la planilla (xlsx, ods o ambos). Devuelve (ruta, facturas) o (None, mensaje);
     con «ambos», ruta es la del .xlsx y el .ods queda al lado."""
@@ -1510,9 +1520,9 @@ def planilla_de_carpeta(carpeta, salida=None, usar_ocr=True, avisar=print, forma
     facturas = leer_carpeta(carpeta, usar_ocr=usar_ocr, avisar=avisar)
     if not facturas:
         return None, f"No encontré facturas con ítems en {carpeta}"
-    base = Path(salida) if salida else carpeta / f"Planilla {carpeta.name}.xlsx"
-    rutas = [generar_planilla(facturas, base.with_suffix(ext))
-             for ext in FORMATOS.get(formato or formato_preferido(), [".xlsx"])]
+    exts = FORMATOS.get(formato or formato_preferido(), [".xlsx"])
+    base = Path(salida) if salida else ruta_libre(carpeta / f"Planilla {carpeta.name}.xlsx", exts)
+    rutas = [generar_planilla(facturas, base.with_suffix(ext)) for ext in exts]
     for r in rutas[1:]:
         avisar(f"  También en {r.name}")
     return rutas[0], facturas

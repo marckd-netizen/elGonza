@@ -434,3 +434,13 @@ def test_unidad_en_columna_junto_a_la_cantidad():
         renglon(185, (40, "28958"), (120, "CABLE COAXIAL"), (300, "200"), (360, "MTR"), (420, "9,59"), (480, "1.918,00"))
     ls = leer_items(_renglones(cab + filas, 0))
     assert [(l.cantidad, l.unidad) for l in ls] == [(4, "UNIDADES"), (200, "METROS")]
+
+
+def test_no_pisa_planilla_existente(tmp_path):
+    from elgonza.planilla import ruta_libre
+    base = tmp_path / "Planilla X.xlsx"
+    assert ruta_libre(base, [".xlsx"]) == base
+    base.write_text("editada")
+    assert ruta_libre(base, [".xlsx"]).name == "Planilla X (2).xlsx"
+    (tmp_path / "Planilla X (2).ods").write_text("editada")
+    assert ruta_libre(base, [".xlsx", ".ods"]).name == "Planilla X (3).xlsx"
