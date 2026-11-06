@@ -142,3 +142,10 @@ libro de criterios. Usa `self.b` (el borrador ya leído) y `self.docs` (los docu
 En `extension-licencias-textiles/` hay una extensión de Chrome que sube varias planillas de licencia textil al sitio de DNI
 con la sesión abierta del usuario y devuelve una planilla con el VU de cada archivo. Instalación y uso en
 [extension-licencias-textiles/LEEME.md](extension-licencias-textiles/LEEME.md).
+
+## AANI en VUCE (extensión de Chrome)
+
+En `extension-vuce-aani/` hay una extensión de Chrome que carga en VUCE un certificado AANI (alimento para animales)
+por cada fila de una tabla (registro, CIF, kg bruto y neto, ingreso por Carrasco o Montevideo) y devuelve una planilla
+con el número de operación y la denominación comercial de cada uno. Instalación y uso en
+[extension-vuce-aani/LEEME.md](extension-vuce-aani/LEEME.md).

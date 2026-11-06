@@ -1,0 +1,15 @@
+{
+  "manifest_version": 3,
+  "name": "elGonza · VUCE AANI",
+  "version": "1.0.0",
+  "description": "Carga en VUCE los certificados AANI (alimento para animales) de una tabla y devuelve una planilla con el número de operación y el producto de cada uno.",
+  "permissions": ["storage", "unlimitedStorage"],
+  "content_scripts": [
+    {
+      "matches": ["https://*.vuce.gub.uy/*"],
+      "js": ["lib/xlsx.mini.min.js", "content.js"],
+      "run_at": "document_idle",
+      "all_frames": false
+    }
+  ]
+}
