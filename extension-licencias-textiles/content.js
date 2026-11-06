@@ -471,6 +471,27 @@
     return 'VU' + num[1];
   }
 
+  /** El "Confirmar" del aviso "¿Desea continuar?" que sale al cerrar la solicitud. */
+  function botonConfirmarAviso() {
+    for (const doc of documentos()) {
+      const textos = [...doc.querySelectorAll('div, span, p, td, label')].filter((el) => {
+        const t = norm(el.innerText || el.textContent);
+        return t.length < 200 && (t.includes('perder las modificaciones') || t.includes('desea continuar')) && visible(el);
+      });
+      for (const el of textos.filter((c) => !textos.some((o) => o !== c && c.contains(o)))) {
+        let caja = el.parentElement;
+        for (let i = 0; caja && i < 6; caja = caja.parentElement, i++) {
+          if (norm(caja.innerText).length > 400) break; // ya no es el aviso: nunca tocar el Confirmar del formulario
+          const b = [...caja.querySelectorAll(SEL_CLICABLES)].filter((e) => norm(textoDe(e)) === 'confirmar'
+            && visible(e) && !e.closest('#btnConf, #btnPanel, #mdlDocumentContainer'));
+          const masInterno = b.filter((x) => !b.some((o) => o !== x && x.contains(o)));
+          if (masInterno.length) return masInterno[0];
+        }
+      }
+    }
+    return null;
+  }
+
   async function volverAlInicio() {
     await sleep(1000);
     const m = leerMensaje();
@@ -479,7 +500,17 @@
     const cerrarSol = css('#btnCloseTab button, #btnCloseTab');
     if (cerrarSol) {
       clic(cerrarSol);
-      try { await esperar(() => buscarTexto('Licencia Textiles').length, 10000, 'inicio'); return; } catch (e) {
+      // "Está por perder las modificaciones realizadas. ¿Desea continuar?" → Confirmar
+      try {
+        let veces = 0;
+        await esperar(() => {
+          if (buscarTexto('Licencia Textiles').length) return true;
+          const c = veces < 3 && botonConfirmarAviso();
+          if (c) { veces++; log('Aviso "¿Desea continuar?": Confirmar'); clic(c); }
+          return false;
+        }, 15000, 'inicio');
+        return;
+      } catch (e) {
         if (e.message === 'DETENIDO') throw e;
       }
     }
