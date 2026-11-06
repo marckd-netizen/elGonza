@@ -316,6 +316,29 @@
     return { nuevo, input: ins[0] };
   }
 
+  /** El botón "Seleccionar archivo": por su texto, o el selector de archivo junto a "Archivo Excel". */
+  function botonSeleccionar() {
+    const t = buscarTexto('Seleccionar archivo')[0];
+    if (t) return t;
+    if (buscarTexto('Nuevo documento').length) return null;
+    const cands = [];
+    for (const doc of documentos()) {
+      for (const inp of doc.querySelectorAll('input[type=file]')) {
+        const c = cercania(inp, 'Archivo Excel');
+        if (c < 600) cands.push([c, inp]);
+      }
+    }
+    cands.sort((a, b) => a[0] - b[0]);
+    if (!cands.length) return null;
+    const inp = cands[0][1];
+    // si el input está oculto, probar con un botón o etiqueta visible a su lado
+    if (!inp.getClientRects().length) {
+      const lab = inp.id && inp.ownerDocument.querySelector(`label[for="${window.CSS.escape(inp.id)}"]`);
+      if (lab && visible(lab)) return lab;
+    }
+    return inp;
+  }
+
   function nombreVisibleEnModal(nombre) {
     const n = norm(nombre);
     return documentos().some((doc) => [...doc.querySelectorAll('span, div, a, td, li, label, p')]
@@ -323,9 +346,41 @@
   }
 
   async function subirArchivo(file) {
-    const btn = await esperar(() => buscarTexto('Seleccionar archivo')[0], 30000, 'el botón "Seleccionar archivo"');
+    let btn = null;
+    try {
+      btn = await esperar(botonSeleccionar, 10000, 'el botón "Seleccionar archivo"');
+    } catch (e) {
+      if (e.message === 'DETENIDO') throw e;
+      // puede que el cambio a "Planilla Excel" no haya mostrado la sección: avisar de nuevo al sitio
+      const s = selectTipoIngreso();
+      if (s) {
+        const w = s.ownerDocument.defaultView;
+        s.focus();
+        s.dispatchEvent(new w.Event('change', { bubbles: true }));
+        s.dispatchEvent(new w.Event('blur', { bubbles: true }));
+      }
+      btn = await esperar(botonSeleccionar, 25000, 'el botón "Seleccionar archivo"');
+    }
+    log(`Botón de archivo: <${btn.tagName.toLowerCase()}${btn.type ? ' type=' + btn.type : ''}>`);
     clic(btn);
-    const r = await esperar(inputArchivoDocumentos, 30000, 'la ventana "Documentos"');
+    let r = null;
+    try {
+      r = await esperar(inputArchivoDocumentos, btn.type === 'file' ? 6000 : 30000, 'la ventana "Documentos"');
+    } catch (e) {
+      if (e.message === 'DETENIDO' || btn.type !== 'file') throw e;
+      // selector de archivo común: entregarle el archivo directo
+      const w = btn.ownerDocument.defaultView;
+      const dt0 = new w.DataTransfer();
+      dt0.items.add(file);
+      btn.files = dt0.files;
+      btn.dispatchEvent(new w.Event('input', { bubbles: true }));
+      btn.dispatchEvent(new w.Event('change', { bubbles: true }));
+      const res = await esperar(() => inputArchivoDocumentos()
+        || (buscarTexto(file.name).length && !buscarTexto('Nuevo documento').length && 'directo'),
+      45000, `que el sitio tome el archivo ${file.name}`);
+      if (res === 'directo') return;
+      r = res;
+    }
     await sleep(600);
     const win = r.nuevo.ownerDocument.defaultView;
     const dt = new win.DataTransfer();
