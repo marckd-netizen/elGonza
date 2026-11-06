@@ -1071,13 +1071,19 @@ def leer_carpeta(carpeta, usar_ocr=True, avisar=None):
     """Facturas de la carpeta (en orden de archivo), cada una con sus líneas, pesos y observaciones."""
     carpeta = Path(carpeta)
     from .excel import EXTENSIONES as EXCEL
-    archivos = sorted(p for p in carpeta.iterdir() if p.is_file()
-                      and p.suffix.lower() in (".pdf", ".tif", ".tiff", ".jpg", ".jpeg", ".png") + EXCEL
-                      and not SALTEAR_ARCHIVO.search(p.stem) and not p.name.startswith("~$"))
+    # también dentro de las subcarpetas («Facturas», «Packing»…); el nombre de la subcarpeta cuenta como el del archivo
+    todos = sorted((p for p in carpeta.rglob("*") if p.is_file()
+                    and not any(x.startswith(".") for x in p.relative_to(carpeta).parts)),
+                   key=lambda p: [x.lower() for x in p.relative_to(carpeta).parts])
+
+    def nombre(p):
+        return " ".join(list(p.relative_to(carpeta).parts[:-1]) + [p.stem])
+    archivos = [p for p in todos if p.suffix.lower() in (".pdf", ".tif", ".tiff", ".jpg", ".jpeg", ".png") + EXCEL
+                and not SALTEAR_ARCHIVO.search(nombre(p)) and not p.name.startswith("~$")]
     facturas, packings, transportes = [], [], []   # packings: (texto, renglones); transportes: (archivo, texto)
     packings_excel = []
-    for a in sorted(p for p in carpeta.iterdir() if p.is_file() and p.suffix.lower() == ".pdf"
-                    and TRANSPORTE_ARCHIVO.search(p.stem) and not re.search(r"(?i)borrador|planilla", p.stem)):
+    for a in (p for p in todos if p.suffix.lower() == ".pdf" and TRANSPORTE_ARCHIVO.search(nombre(p))
+              and not re.search(r"(?i)borrador|planilla", nombre(p))):
         try:
             transportes.append((a.name, "\n".join(r.texto for rs in paginas_de(a, usar_ocr) for r in rs)))
         except Exception:

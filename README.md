@@ -27,7 +27,7 @@ Paso previo a la revisión: arma la planilla de ítems para cargar el DUA a part
    nombres de columna (Description, Pcs/Qty, Price, Amount, HSN, Total Nt Wt, Total Gr Wt, No. of Box…) y un ítem
    puede ocupar varias filas. Si la misma factura está en Excel y en PDF, vale la de Excel. Los certificados de
    origen se saltean.
-2. **Factura a planilla…** y elegir la carpeta. Desde la línea de comandos: `elgonza --planilla "C:\ruta\carpeta"`.
+2. **Factura a planilla…** y elegir la carpeta (busca también dentro de sus subcarpetas; las que se llaman «planilla», «flete», «seguro», «BL»… se saltean como los archivos). Desde la línea de comandos: `elgonza --planilla "C:\ruta\carpeta"`.
 3. Se guarda `Planilla <carpeta>.xlsx` en la misma carpeta y se abre. Al lado del botón se elige el formato:
    Excel (.xlsx), OpenOffice (.ods) o los dos; queda guardado para la próxima vez. Por línea de comandos:
    `--formato xlsx|ods|ambos`.

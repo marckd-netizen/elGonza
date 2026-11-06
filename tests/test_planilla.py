@@ -475,3 +475,14 @@ def test_precio_en_renglon_de_abajo_y_packing_con_pallets(tmp_path):
     assert l.ncm_factura == "200190" and l.ncm == "2001.90.00.00"
     assert (l.neto, l.bruto) == (10584, 16213.28)
     assert not any("total igual" in o or "descuento" in o for o in f.observaciones)
+
+
+def test_facturas_en_subcarpetas(tmp_path):
+    sub = tmp_path / "Facturas" / "Proveedor A"
+    sub.mkdir(parents=True)
+    fila = _fila(180, "1", "PVC-20", "White PVC film", "150", "100.00", "2.00", "200.00")
+    _pdf(sub / "INV-77.pdf", [_factura("INV-77", "05/09/2026", [fila], [(170, 220, "TOTAL"), (500, 220, "200.00")])])
+    (tmp_path / "Planillas viejas").mkdir()
+    _pdf(tmp_path / "Planillas viejas" / "INV-77.pdf", [_factura("INV-77", "05/09/2026", [fila])])
+    (f,) = leer_carpeta(tmp_path, usar_ocr=False)
+    assert f.numero == "INV-77" and len(f.lineas) == 1
