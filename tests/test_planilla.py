@@ -421,3 +421,16 @@ def test_pesos_dichos_en_la_factura_y_ncm_en_la_descripcion():
     g.otros_textos = ["LISTA DE EMPAQUE\nPESO NETO: 75,000 KG\nPESO BRUTO: 83,000 KG"]
     _pesos_sin_packing([g], [])
     assert g.bruto_total == 83
+
+
+def test_unidad_en_columna_junto_a_la_cantidad():
+    from elgonza.planilla import Palabra, _renglones, leer_items
+
+    def renglon(top, *palabras):
+        return [Palabra(t, x, x + 5 * len(t), top) for x, t in palabras]
+    cab = renglon(150, (40, "COD."), (120, "DESCRIPCION"), (300, "CANTIDAD"), (360, "MEDIDA"), (420, "PRECIO"),
+                  (480, "TOTAL"))
+    filas = renglon(170, (40, "28957"), (120, "CAMARA DOMO"), (300, "4"), (360, "PÇ"), (420, "171,20"), (480, "684,80")) + \
+        renglon(185, (40, "28958"), (120, "CABLE COAXIAL"), (300, "200"), (360, "MTR"), (420, "9,59"), (480, "1.918,00"))
+    ls = leer_items(_renglones(cab + filas, 0))
+    assert [(l.cantidad, l.unidad) for l in ls] == [(4, "UNIDADES"), (200, "METROS")]

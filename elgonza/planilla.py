@@ -24,9 +24,9 @@ DEDUCCION = re.compile(r"(?i)deduct|discount|commission|descuento|bonificaci|reb
 UNIDADES = [
     (re.compile(r"(?i)^(M2|M²|SQM|SQ\.?M|MTS2)$"), "METROS CUADRADOS"),
     (re.compile(r"(?i)^(KGS?|KILOS?|N\.?W\.?)$"), "KILOGRAMOS"),
-    (re.compile(r"(?i)^(M|MTS?|METERS?|METROS?)$"), "METROS"),
+    (re.compile(r"(?i)^(M|MTS?|MTRS?|ML|METERS?|METROS?)$"), "METROS"),
     (re.compile(r"(?i)^(L|LTS?|LITERS?|LITROS?)$"), "LITROS"),
-    (re.compile(r"(?i)^(PCS|PC|PZS|UNITS?|UNIDADES|UN|U|QTY|SETS?|EA|EACH|ROLLS?)$"), "UNIDADES"),
+    (re.compile(r"(?i)^(PCS|PC|PÇS?|PZAS?|PZS?|UNITS?|UNIDADES|UN|U|QTY|SETS?|EA|EACH|ROLLS?)$"), "UNIDADES"),
 ]
 
 
@@ -330,6 +330,10 @@ def _interlineado(tops):
     return difs[len(difs) // 2] if difs else 20
 
 
+def l_ocr_fila(r):
+    return any(p.ocr for p in r.palabras)
+
+
 def _unidad(encabezados, x0, x1):
     """Unidad de la columna de cantidad, por la palabra del encabezado que está encima."""
     mejor = None
@@ -559,6 +563,15 @@ def leer_items(renglones):
                 desc = re.sub(r"(?i)[\s,;/(-]*\b(MADE\s+IN|COUNTRY\s+OF\s+ORIGIN|ORIGIN|ORIGEN)\b\W*[A-Za-zÁÉÍÓÚÑ .]{2,30}"
                               r"\)?\s*$", "", desc).strip() or desc
         unidad = _unidad(encabezados, q.x0, q.x1) if q in nums else None
+        # columna de unidad pegada a la cantidad («4 PÇ», «200 MTR»); con OCR, sus lecturas típicas (MIR, PG)
+        if q in pal:
+            siguientes = [p.texto.strip("|()[]") for p in pal[pal.index(q) + 1:pal.index(q) + 4]]
+            t_u = next((t for t in siguientes if re.search(r"\w", t)), "")
+            if l_ocr_fila(r):
+                t_u = {"MIR": "MTR", "MTH": "MTR", "PG": "PÇ", "PO": "PÇ"}.get(t_u.upper(), t_u)
+            u = next((nombre for patron, nombre in UNIDADES if patron.match(t_u)), None)
+            if u:
+                unidad = u
         m = UNIDAD_INICIAL.match(desc)
         if m:
             desc = desc[m.end():]
