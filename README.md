@@ -41,7 +41,9 @@ facturas, después de ITEM (correlativo de todas) van FACTURA (número) y FECHA 
   misma lectura para sumar las cantidades.
 - Neto y bruto salen del packing list. Si trae un renglón por producto con su neto y bruto, se toman directo; si
   trae pesos por bulto, el peso de cada bulto se reparte por cantidad entre sus renglones, se suma por código y se
-  reparte entre los ítems de la factura con ese código.
+  reparte entre los ítems de la factura con ese código. Si no hay packing list, toma el peso bruto del conocimiento
+  o la guía (una hoja del mismo PDF o un archivo «BL», «AWB», «guía», «conoc…» o «CRT» en la carpeta), lo reparte
+  por valor entre todas las líneas y el neto es el 91 % del bruto, con dos decimales.
 - Si la factura trae el NCM («NCM: 94036000»), se sugiere su apertura nacional a 10 dígitos (y si hay varias, se
   listan en Notas). Si no, el NCM sugerido sale primero de `Documentos\elGonza\antecedentes_ncm.txt` (botón **Antecedentes NCM…**, una línea
   por producto: `código o texto | NCM | descripción`) y si no, de reglas por tipo de mercadería (por ahora papel y

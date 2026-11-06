@@ -774,13 +774,59 @@ def _agrupar(filas_y, marcas_y, alto):
 
 
 # --- carpeta -----------------------------------------------------------------
+TRANSPORTE_ARCHIVO = re.compile(r"(?i)\bbl\b|awb|guia|conoc|crt")
+TRANSPORTE_PAGINA = re.compile(r"AIR\s*WAYBILL|AIRWAYBILL|BILL\s+OF\s+LADING|CONOCIMIENTO|CARTA\s+DE\s+PORTE|"
+                               r"\bCRT\b|\bHAWB\b|\bMAWB\b|SEA\s*WAYBILL|MANIFIESTO")
+PESO_BRUTO = re.compile(r"(?i)\b(GROSS\s*WEIGHT|PESO\s*BRUTO|PESO\s*BRUTO\s*TOTAL|G\.\s*W\.|TOTAL\s*WEIGHT|"
+                        r"ACTUAL\s*WEIGHT|WEIGHT|PESO)\b[^0-9\n]{0,25}?(\d[\d.,]*)\s*(KGS?|KILOS?|LBS?)?")
+
+
 def _tipo_pagina(renglones, anterior):
     t = " ".join(r.texto for r in renglones[:40]).upper()
     if re.search(r"PACKING|PACKAGE LIST|LISTA DE EMPAQUE|EMPAQUE", t):
         return "packing"
     if re.search(r"INVOICE|FACTURA", t):
         return "factura"
+    if TRANSPORTE_PAGINA.search(t):
+        return "transporte"
     return anterior
+
+
+def peso_bruto_transporte(texto):
+    """Peso bruto en kg de un conocimiento o guía: el que dice «gross weight / peso bruto» y si no, «weight».
+    Devuelve (kg, texto encontrado) o None. Descarta el peso tasable (chargeable)."""
+    candidatos = []
+    for m in PESO_BRUTO.finditer(texto):
+        antes = texto[max(0, m.start() - 15):m.start()].upper()
+        if re.search(r"CHARGEABLE|TASABLE|NET|NETO|VOLUM", antes + m.group(0).upper()):
+            continue
+        v = num_libre(m.group(2))
+        if not v:
+            continue
+        unidad = (m.group(3) or re.search(r"(?i)KGS?|LBS?|$", m.group(0)).group(0) or "KG").upper()
+        if unidad.startswith("LB"):
+            v = round(v * 0.45359237, 2)
+        fuerte = not re.fullmatch(r"(?i)WEIGHT|PESO", m.group(1))
+        candidatos.append((fuerte, v, " ".join(m.group(0).split())))
+    if not candidatos:
+        return None
+    fuerte, v, frase = max(candidatos, key=lambda c: c[0])
+    return v, frase
+
+
+def prorratear_peso(lineas, bruto, neto_pct=0.91):
+    """Reparte el peso bruto entre las líneas por valor; neto = 91 % del bruto de cada línea. Dos decimales; el
+    redondeo se ajusta en la línea de mayor valor para que la suma dé exacta."""
+    total = sum(l.importe for l in lineas)
+    if not lineas or total <= 0:
+        return
+    for l in lineas:
+        l.bruto = round(bruto * l.importe / total, 2)
+    mayor = max(lineas, key=lambda l: l.importe)
+    mayor.bruto = round(mayor.bruto + round(bruto - sum(l.bruto for l in lineas), 2), 2)
+    for l in lineas:
+        l.neto = round(l.bruto * neto_pct, 2)
+    mayor.neto = round(mayor.neto + round(round(bruto * neto_pct, 2) - sum(l.neto for l in lineas), 2), 2)
 
 
 def leer_carpeta(carpeta, usar_ocr=True, avisar=None):
@@ -789,7 +835,13 @@ def leer_carpeta(carpeta, usar_ocr=True, avisar=None):
     archivos = sorted(p for p in carpeta.iterdir() if p.is_file()
                       and p.suffix.lower() in (".pdf", ".tif", ".tiff", ".jpg", ".jpeg", ".png")
                       and not SALTEAR_ARCHIVO.search(p.stem))
-    facturas, packings = [], []   # packings: (texto, renglones)
+    facturas, packings, transportes = [], [], []   # packings: (texto, renglones); transportes: (archivo, texto)
+    for a in sorted(p for p in carpeta.iterdir() if p.is_file() and p.suffix.lower() == ".pdf"
+                    and TRANSPORTE_ARCHIVO.search(p.stem) and not re.search(r"(?i)borrador|planilla", p.stem)):
+        try:
+            transportes.append((a.name, "\n".join(r.texto for rs in paginas_de(a, usar_ocr) for r in rs)))
+        except Exception:
+            pass
     for a in archivos:
         if avisar:
             avisar(f"Leyendo {a.name}…")
@@ -809,6 +861,9 @@ def leer_carpeta(carpeta, usar_ocr=True, avisar=None):
             if t == "packing":
                 packings.append((texto, rs))
                 continue
+            if t == "transporte":
+                transportes.append((a.name, texto))
+                continue
             lineas = leer_items(rs)
             if not lineas:
                 continue
@@ -824,7 +879,7 @@ def leer_carpeta(carpeta, usar_ocr=True, avisar=None):
             f.neto_total, f.bruto_total, f.bultos = pesos_packing([r for rs in propios for r in rs], f.lineas,
                                                                    f.observaciones)
         else:
-            f.observaciones.append("No encontré el packing list de esta factura: neto y bruto quedan vacíos.")
+            f.sin_packing = True
         _origen_factura(f, [texto for texto, rs in packings if any(rs is x for x in propios)])
         hs = {re.sub(r"\D", "", m.group(1)) for m in HS_EN_ENCABEZADO.finditer(getattr(f, "texto", ""))}
         hs = {h for h in hs if len(h) >= 6}
@@ -845,7 +900,41 @@ def leer_carpeta(carpeta, usar_ocr=True, avisar=None):
         for l in f.lineas:
             l.ncm, l.descripcion_es, l.motivo = sugerir(l.codigo, l.descripcion, l.ancho_mm,
                                                           getattr(l, "ncm_factura", ""), importador, proveedor)
+    _pesos_sin_packing(facturas, transportes)
     return facturas
+
+
+def _pesos_sin_packing(facturas, transportes):
+    """Sin packing list: el peso bruto del conocimiento o la guía se reparte por valor entre todas las líneas de
+    las facturas que no tienen packing (descontando lo que ya pesan las que sí lo tienen)."""
+    sin = [f for f in facturas if getattr(f, "sin_packing", False)]
+    ids = {id(f) for f in sin}
+    if not sin:
+        return
+    peso = next(((archivo, *p) for archivo, texto in transportes for p in [peso_bruto_transporte(texto)] if p), None)
+    if not peso:
+        for f in sin:
+            f.observaciones.append("No encontré el packing list ni el peso bruto del conocimiento o la guía: neto y "
+                                   "bruto quedan vacíos.")
+        return
+    archivo, kg, frase = peso
+    con_packing = sum(f.bruto_total or 0 for f in facturas if id(f) not in ids)
+    bruto = round(kg - con_packing, 2)
+    if bruto <= 0:
+        for f in sin:
+            f.observaciones.append(f"Sin packing list, y el peso bruto del conocimiento ({kg:,.2f} kg) ya lo cubren "
+                                   "los packing de las otras facturas: neto y bruto quedan vacíos.")
+        return
+    lineas = [l for f in sin for l in f.lineas]
+    prorratear_peso(lineas, bruto)
+    for f in sin:
+        f.bruto_total = round(sum(l.bruto for l in f.lineas), 2)
+        f.neto_total = round(sum(l.neto for l in f.lineas), 2)
+        f.observaciones.append(
+            f"Sin packing list: el peso bruto del conocimiento o guía ({archivo}: «{frase}») "
+            + (f"menos {con_packing:,.2f} kg de las facturas con packing, " if con_packing else "")
+            + f"{bruto:,.2f} kg, se reparte por valor entre {len(lineas)} líneas"
+            + (f" de {len(sin)} facturas" if len(sin) > 1 else "") + "; el neto es el 91 % del bruto.")
 
 
 def _origen_factura(f, textos_packing):
@@ -987,7 +1076,8 @@ def generar_planilla(facturas, ruta):
             ns.append([f"{l.codigo or l.descripcion[:30]} → {l.ncm or 'sin sugerencia'}{tasas}", l.motivo])
     ns.append([])
     ns.append(["NETO y BRUTO: el packing list da el peso por bulto; se reparte por cantidad dentro de cada bulto y "
-               "por código entre los ítems de la factura."])
+               "por código entre los ítems de la factura. Sin packing list, el peso bruto del conocimiento o la guía "
+               "se reparte por valor entre todas las líneas y el neto es el 91 % del bruto."])
     ns.append(["La columna NCM SUGERIDO es una sugerencia: hay que confirmarla antes de cargar el DUA."])
     ruta = Path(ruta)
     if ruta.suffix.lower() == ".ods":

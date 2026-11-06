@@ -323,3 +323,18 @@ def test_factura_de_libros_cantidad_despues_del_precio(tmp_path):
     assert {l.ncm for l in f.lineas} == {"4901.99.00.00"}
     assert f.lineas[0].descripcion_es == "LIBRO" and "4903" in f.lineas[2].motivo
     assert {l.origen for l in f.lineas} == {"ESTADOS UNIDOS"}
+
+
+def test_sin_packing_reparte_el_peso_de_la_guia(tmp_path):
+    from elgonza.planilla import peso_bruto_transporte
+    assert peso_bruto_transporte("Custom Value USD 2029.22\nWeight KG 85.71\nTotal Pieces 4 of 4") == (85.71, "Weight KG 85.71")
+    assert peso_bruto_transporte("Chargeable Weight 120 KG\nGross Weight: 98,5 KGS")[0] == 98.5
+    assert peso_bruto_transporte("GROSS WEIGHT 100 LBS")[0] == 45.36
+    filas = [_fila(180, "1", "BV-1", "Brass ball valve 1/2", "", "100.00", "2.00", "200.00"),
+             _fila(210, "2", "BV-2", "Brass ball valve 3/4", "", "100.00", "1.50", "150.00")]
+    guia = [(250, 60, "INTERNATIONAL AIR WAYBILL"), (60, 100, "Weight KG 10.00"), (60, 120, "Total Pieces 1 of 1")]
+    _pdf(tmp_path / "preAlert.pdf", [guia, _factura("NV-9", "01/10/2026", filas)])
+    f = leer_carpeta(tmp_path, usar_ocr=False)[0]
+    assert [(l.bruto, l.neto) for l in f.lineas] == [(5.71, 5.2), (4.29, 3.9)]
+    assert f.bruto_total == 10 and f.neto_total == 9.1
+    assert any("91 %" in o for o in f.observaciones)
