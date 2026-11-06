@@ -486,3 +486,57 @@ def test_facturas_en_subcarpetas(tmp_path):
     _pdf(tmp_path / "Planillas viejas" / "INV-77.pdf", [_factura("INV-77", "05/09/2026", [fila])])
     (f,) = leer_carpeta(tmp_path, usar_ocr=False)
     assert f.numero == "INV-77" and len(f.lineas) == 1
+
+
+def test_factura_word_con_columnas_en_una_celda(tmp_path):
+    docx = pytest.importorskip("docx")
+    d = docx.Document()
+    t = d.add_table(rows=2, cols=4)
+    t.cell(0, 0).text = "Invoice No: & Date 03 dated 03/07/2026"
+    t.cell(1, 0).text = ("# ENM987 SACO CORTO GAMUZA 100% GOAT SUEDE\nREF MD JACKET\n\n# ENM988- POLLERA GAMUZA\n\n"
+                         "BANK ADDRESS & DETAILS")
+    t.cell(1, 1).text = "TABACO 6pc\nNEGRO 20pc"
+    t.cell(1, 2).text = "US$ 120\n\nUS$ 58.50"
+    t.cell(1, 3).text = "720.00\n\n1170.00\nTotal US$ 1890.00"
+    d.save(tmp_path / "invoice women.docx")
+    (f,) = leer_carpeta(tmp_path, usar_ocr=False)
+    assert f.numero == "03" and f.fecha == "03/07/2026"
+    assert [(l.codigo, l.cantidad, l.precio, l.importe) for l in f.lineas] == \
+        [("ENM987", 6, 120, 720), ("ENM988", 20, 58.5, 1170)]
+    assert f.lineas[0].descripcion == "SACO CORTO GAMUZA 100% GOAT SUEDE REF MD JACKET"
+
+
+def test_excel_subencabezado_cajas_mixtas_y_cuadro_de_clasificacion(tmp_path):
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.append(["COMMERCIAL INVOICE"])
+    ws.append(["Invoice No. & Date"])
+    ws.append(["AO4347 DTD 01.08.2026"])
+    ws.append(["Marks & Nos.", "No.& Kind", "DESCRIPTION OF GOODS", None, None, "Quantity", None, "Rate", "Amount"])
+    ws.append([None, None, "COTTON LADIES GARMENTS"])
+    ws.append([None, "STYLE NO.", "STYLE NAME", "COLOUR", "ITEM DESCRIPTION"])
+    ws.append([1, "ENM998", "CAMISA VOILE", "BLANCO", "100% COTTON SHIRT", 34, "PCS", 7.25, 246.5])
+    ws.append([2, "ENM998", "CAMISA VOILE", "CAFE", "100% COTTON SHIRT", 30, "PCS", 7.25, 217.5])
+    ws.append([3, "ENM1303", "PANTALON VOILE", "BLANCO", "100% COTTON TROUSER", 10, "PCS", 7.75, 77.5])
+    ws.append([None, None, "TOTAL", None, None, 74, None, None, 541.5])
+    pl = wb.create_sheet("PL")
+    pl.append(["PACKING LIST"])
+    pl.append(["BOX", "STYLE", "COLOUR", "SIZE", None, "TOTAL", "GROSS"])
+    pl.append(["NO", "NAME", None, "S", "M", "PCS", "WT(KG'S)"])
+    pl.append([1, "ENM998", "BLANCO", 20, 14, 64, 10])
+    pl.append([None, "ENM998", "CAFE", 15, 15])
+    pl.append([2, "ENM1303", "BLANCO", 5, 5, 10, 2])
+    pl.append([None, None, None, None, None, 74, 12])
+    wb.save(tmp_path / "INVOICE + PL.xlsx")
+    cuadro = openpyxl.Workbook()
+    c = cuadro.active
+    c.append(["Proveedor: AHUJA"])
+    c.append(["Style", "modelo", "P.A. SIM"])
+    c.append(["ENM998", "CAMISA", "6206.30.00.291L"])
+    cuadro.save(tmp_path / "Cuadro de clasificacion AHUJA.xlsx")
+    (f,) = leer_carpeta(tmp_path, usar_ocr=False)
+    assert [(l.codigo, l.descripcion) for l in f.lineas][:2] == [
+        ("ENM998", "CAMISA VOILE BLANCO 100% COTTON SHIRT"), ("ENM998", "CAMISA VOILE CAFE 100% COTTON SHIRT")]
+    assert [l.bruto for l in f.lineas] == [5.31, 4.69, 2.0]
+    assert [l.neto for l in f.lineas] == [4.83, 4.27, 1.82]
+    assert f.lineas[0].ncm == "6206.30.00.291L" and "Cuadro" in f.lineas[0].motivo

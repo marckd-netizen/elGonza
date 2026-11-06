@@ -8,7 +8,7 @@ hay, cada fila con números se lleva las filas de texto de arriba.
 import re
 from dataclasses import dataclass, field
 
-EXTENSIONES = (".xlsx", ".xlsm")
+EXTENSIONES = (".xlsx", ".xlsm", ".xls")
 
 
 def _t(v):
@@ -33,9 +33,9 @@ def _num(v):
 
 # rol de cada columna según su encabezado (en minúsculas, sin saltos de línea)
 ROLES = [
-    ("nro", r"^(s\.?\s*no\.?|sl\.?\s*no\.?|sr\.?\s*no\.?|no\.?|n[º°]|#|item|ítem|nro\.?)$"),
+    ("nro", r"^(s\.?\s*no\.?|sl\.?\s*no\.?|sr\.?\s*no\.?|no\.?|n[º°]|#|item|ítem|nro\.?|box\s*no\.?)$"),
     ("importe", r"amount|importe|total\s*(value|usd|us\$|price)|valor\s*total|^total$|^valor$|subtotal"),
-    ("precio", r"price|per\s*(garment|pc|piece|unit|pair|set|doz)|unit\s*(value|cost)|precio|p\.?\s*unit|^fob"),
+    ("precio", r"price|per\s*(garment|pc|piece|unit|pair|set|doz)|unit\s*(value|cost)|precio|p\.?\s*unit|^fob|^rate$"),
     ("total_cant", r"^total\s*(pcs|pieces|qty|quantity|units)$"),
     ("cant", r"^(pcs|qty|q'?ty|quantity|cantidad|cant\.?|qtde|units|pieces|pares|pairs)$|^(qty|quantity)\b"),
     ("hs", r"\b(hs|hsn|h\.s\.|ncm|hts|tariff|partida)\b"),
@@ -72,21 +72,38 @@ class Hoja:
     total_fila: list = None   # valores de la fila TOTAL
 
 
+def _roles(fila):
+    roles = {}
+    for j, v in enumerate(fila):
+        r = _rol(v)
+        if r == "tejido" and r in roles:
+            r = "tejido2"           # tela y composición: las dos van a la descripción
+        if r and r not in roles:
+            roles[r] = j
+    return roles
+
+
 def _encabezado(filas):
-    """(índice de la fila de encabezado, {rol: columna}) o None."""
+    """(índice de la última fila del encabezado, {rol: columna}) o None. El encabezado puede ocupar dos filas
+    («TOTAL» arriba y «PCS» abajo, «GROSS» y «WT(KG'S)»)."""
     mejor = None
+    utiles_roles = {"cant", "total_cant", "precio", "importe", "descripcion", "neto_total", "bruto_total", "neto",
+                    "bruto"}
     for i, fila in enumerate(filas[:60]):
-        roles = {}
-        for j, v in enumerate(fila):
-            r = _rol(v)
-            if r == "tejido" and r in roles:
-                r = "tejido2"           # tela y composición: las dos van a la descripción
-            if r and r not in roles:
-                roles[r] = j
-        utiles = {"cant", "total_cant", "precio", "importe", "descripcion", "neto_total", "bruto_total", "neto",
-                  "bruto"} & set(roles)
-        if len(utiles) >= 3 and (not mejor or len(roles) > len(mejor[1])):
-            mejor = (i, roles)
+        candidatos = [(i, _roles(fila))]
+        if i + 1 < len(filas):
+            sig = filas[i + 1]
+            junto = [" ".join(_t(x) for x in (a, b) if x not in (None, ""))
+                     if not any(isinstance(x, (int, float)) and not isinstance(x, bool) for x in (a, b)) else None
+                     for a, b in zip(list(fila) + [None] * (len(sig) - len(fila)),
+                                     list(sig) + [None] * (len(fila) - len(sig)))]
+            candidatos.append((i + 1, _roles(junto)))
+        for fin, roles in candidatos:
+            utiles = utiles_roles & set(roles)
+            pesos_y_cant = bool({"neto", "bruto", "neto_total", "bruto_total"} & utiles) and \
+                bool({"cant", "total_cant"} & utiles)
+            if (len(utiles) >= 3 or pesos_y_cant) and (not mejor or len(roles) > len(mejor[1])):
+                mejor = (fin, roles)
     return mejor
 
 
@@ -114,13 +131,25 @@ def _texto_encabezado(filas, hasta):
     return "\n".join(lineas)
 
 
-def leer_hojas(ruta):
-    """Hojas con facturas o packing lists de un .xlsx."""
+def _hojas_crudas(ruta):
+    """[(nombre, filas)] de un .xlsx/.xlsm (openpyxl) o de un .xls viejo (xlrd)."""
+    if str(ruta).lower().endswith(".xls"):
+        import xlrd
+        wb = xlrd.open_workbook(str(ruta))
+        return [(s.name, [[None if v == "" else v for v in s.row_values(i)] for i in range(s.nrows)])
+                for s in wb.sheets()]
     import openpyxl
     wb = openpyxl.load_workbook(ruta, data_only=True, read_only=True)
+    try:
+        return [(ws.title, [list(r) for r in ws.iter_rows(values_only=True)]) for ws in wb.worksheets]
+    finally:
+        wb.close()
+
+
+def leer_hojas(ruta):
+    """Hojas con facturas o packing lists de un .xlsx, .xlsm o .xls."""
     res = []
-    for ws in wb.worksheets:
-        filas = [list(r) for r in ws.iter_rows(values_only=True)]
+    for _, filas in _hojas_crudas(ruta):
         if not filas:
             continue
         todo = "\n".join(_t(v) for f in filas for v in f if v not in (None, ""))
@@ -138,10 +167,31 @@ def leer_hojas(ruta):
             continue
         filas = filas[:i0 + 1] + [x for f in filas[i0 + 1:] for x in _partir(f)]
         h = Hoja(tipo, _texto_encabezado(filas, i0) + "\n" + todo, cols)
-        _items(h, filas[i0 + 1:])
+        desde = _subencabezado(filas, i0, cols)
+        _items(h, filas[desde:])
         res.append(h)
-    wb.close()
     return res
+
+
+def _subencabezado(filas, i0, cols):
+    """Encabezado de segundo nivel debajo del principal («STYLE NO. | STYLE NAME | COLOUR | ITEM DESCRIPTION»): el
+    código va en su columna y la descripción junta las demás. Devuelve la fila donde empiezan los ítems."""
+    for i in range(i0 + 1, min(i0 + 10, len(filas))):
+        textos = {j: _t(v) for j, v in enumerate(filas[i]) if v not in (None, "")}
+        if not textos or any(not isinstance(v, str) for v in filas[i] if v not in (None, "")):
+            continue
+        if any(re.fullmatch(r"\s*-?\d[\d.,]*\s*", t) for t in textos.values()):
+            continue
+        roles = {j: _rol(t) for j, t in textos.items()}
+        cod = [j for j, t in textos.items() if roles[j] == "codigo" and re.search(r"(?i)\b(no\.?|code|c[oó]digo|ref|art)\b|#", t)]
+        desc = [j for j in textos if j not in cod and j not in (cols.get("cant"), cols.get("total_cant"),
+                                                                 cols.get("precio"), cols.get("importe"))]
+        if cod and len(desc) >= 1 and len(textos) >= 3:
+            cols["codigo"] = cod[0]
+            cols["descripcion"] = desc[0]
+            cols["desc_cols"] = desc
+            return i + 1
+    return i0 + 1
 
 
 def _partir(fila):
@@ -161,8 +211,8 @@ def _items(h, filas):
     c = h.columnas
     cant_col = c.get("total_cant", c.get("cant"))
 
-    def val(fila, rol):
-        j = c.get(rol)
+    def val(fila, rol, j=None):
+        j = c.get(rol) if j is None else j
         return fila[j] if j is not None and j < len(fila) else None
 
     def es_total(fila):
@@ -178,7 +228,8 @@ def _items(h, filas):
                 re.fullmatch(r"\s*-?\d[\d.,]*\s*", str(v)) and _num(v)}
         solo_numeros = all(v is None or j in nums for j, v in enumerate(fila))
         es_suma = solo_numeros and len(nums) >= 2 and all(abs(sumas.get(j, 0) - v) < 0.011 for j, v in nums.items())
-        if es_total(fila) or es_suma:
+        if (es_total(fila) and any(_num(v) for v in fila if v not in (None, "") and not isinstance(v, str)
+                                   or isinstance(v, str) and re.fullmatch(r"\s*\d[\d.,]*\s*", v))) or es_suma:
             h.total_fila = fila
             break
         for j, v in nums.items():
@@ -217,8 +268,44 @@ def _items(h, filas):
                                      else (_num(val(f, "neto_total")) or _num(val(f, "bruto_total"))
                                            or (_num(f[cant_col]) if cant_col is not None and cant_col < len(f)
                                                else None)))]
-        for f in filas_num:
-            it = {"nro": nro, "codigo": junta("codigo"), "descripcion": junta("descripcion"),
+        if h.tipo == "packing" and cant_col is not None and "codigo" in c:
+            # caja con varios productos (un renglón por producto y color) y el total de piezas solo en el primero:
+            # la cantidad de cada renglón es la suma de sus talles, si los talles cierran con el total de la caja
+            conocidas = {j for k, j in c.items() if k != "desc_cols" and isinstance(j, int)}
+
+            def talles(f):
+                return sum(_num(v) or 0 for j, v in enumerate(f) if c["codigo"] < j < cant_col and j not in conocidas
+                           and v not in (None, "") and _num(v) is not None and not isinstance(v, str))
+            con_cod = [f for f in b if _t(val(f, "codigo"))]
+            tot = sum(_num(f[cant_col]) or 0 for f in b if cant_col < len(f))
+            if len(con_cod) > len(filas_num) and all(talles(f) for f in con_cod) and \
+                    abs(sum(talles(f) for f in con_cod) - tot) < 0.01:
+                pesos = {rol: sum(_num(val(f, rol)) or 0 for f in b) for rol in ("neto_total", "bruto_total", "neto",
+                                                                                   "bruto") if rol in c}
+                nuevas = []
+                for f in con_cod:
+                    f = list(f) + [None] * max(0, cant_col + 1 - len(f))
+                    q = talles(f)
+                    f[cant_col] = q
+                    for rol, w in pesos.items():
+                        f[c[rol]] = round(w * q / tot, 3) if w else None
+                    nuevas.append(f)
+                filas_num = nuevas
+        propios_cod = [_t(val(f, "codigo")) if h.tipo == "packing" and len(filas_num) > 1 else ""
+                       for f in filas_num]
+        if h.tipo == "packing" and len(filas_num) > 1:
+            # una caja con varios productos y el peso escrito una sola vez: se reparte por cantidad
+            for rol in ("neto_total", "bruto_total", "neto", "bruto"):
+                vals = [_num(val(f, rol)) for f in filas_num]
+                cants = [_num(f[cant_col]) if cant_col is not None and cant_col < len(f) else None for f in filas_num]
+                if rol in c and any(vals) and not all(vals) and all(cants):
+                    tot, sc = sum(v or 0 for v in vals), sum(cants)
+                    for f, q in zip(filas_num, cants):
+                        f[c[rol]] = round(tot * q / sc, 3)
+        for f, cod in zip(filas_num, propios_cod):
+            desc = " ".join(x for x in (_t(val(f, None, j)) for j in c["desc_cols"]) if x) if "desc_cols" in c \
+                else junta("descripcion")
+            it = {"nro": nro, "codigo": cod or junta("codigo"), "descripcion": desc,
                   "tejido": " ".join(x for x in (junta("tejido"), junta("tejido2")) if x), "hs": re.sub(r"\D", "", next((_t(val(x, "hs")) for x in b
                                                                           if _t(val(x, "hs"))), "")),
                   "cant": _num(f[cant_col]) if cant_col is not None and cant_col < len(f) else None,

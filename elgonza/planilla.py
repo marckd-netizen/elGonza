@@ -18,7 +18,7 @@ from .ncm import sugerir
 from .numeros import num_libre
 
 NUMERO = re.compile(r"\d[\d.,]*\d|\d")
-SALTEAR_ARCHIVO = re.compile(r"(?i)borrador|flete|freight|seguro|insurance|\bbl\b|awb|guia|conoc|crt|planilla")
+SALTEAR_ARCHIVO = re.compile(r"(?i)borrador|flete|freight|seguro|insurance|\bbl\b|awb|guia|conoc|crt|planilla|clasificaci|\bfotos?\b|\bphotos?\b|im[aá]genes|\bimages\b")
 TOTAL = re.compile(r"(?i)\bTO?TA?L\b|\bTOAL\b|\bSUB-?TOTAL\b|\bSUMA\b|\bINVOICE\s+AMOUNT\b")
 DEDUCCION = re.compile(r"(?i)deduct|discount|commission|descuento|bonificaci|rebate")
 UNIDADES = [
@@ -84,9 +84,25 @@ def _renglones(palabras, pagina, tol=3):
     return res
 
 
+CANT_PEGADA = re.compile(r"(?i)^(\d+(?:[.,]\d+)?)(pcs?|pzs?|pza|units?|sets?|prs|pairs?|und|uds)\.?$")
+
+
+def _separar_unidad(palabras):
+    """«18pc», «07pcs»: la cantidad pegada a la unidad se separa en dos palabras."""
+    res = []
+    for p in palabras:
+        m = CANT_PEGADA.match(p.texto)
+        if m:
+            corte = p.x0 + (p.x1 - p.x0) * len(m.group(1)) / len(p.texto)
+            res += [Palabra(m.group(1), p.x0, corte, p.top, p.ocr), Palabra(m.group(2), corte, p.x1, p.top, p.ocr)]
+        else:
+            res.append(p)
+    return res
+
+
 def _palabras_pdf(pagina):
-    return [Palabra(w["text"], w["x0"], w["x1"], w["top"])
-            for w in pagina.dedupe_chars().extract_words(x_tolerance=1.5, y_tolerance=2)]
+    return _separar_unidad([Palabra(w["text"], w["x0"], w["x1"], w["top"])
+                            for w in pagina.dedupe_chars().extract_words(x_tolerance=1.5, y_tolerance=2)])
 
 
 def limpiar_imagen(imagen):
@@ -242,6 +258,10 @@ def _leer_fecha(s):
 
 
 def _numero_factura(texto):
+    # «Invoice No: & Date 08 dated 30/07/2026», «AO4347 DTD 01.08.2026»: el número puede ser corto
+    m = re.search(r"(?i)\bINVOICE\s*NO\.?\s*:?\s*&\s*DATE\s*:?\s*([A-Z0-9][A-Z0-9\-/]*)\s+(?:DATED|DTD|DT)\b", texto)
+    if m:
+        return m.group(1)
     m = re.search(r"(?i)\b(?:INVOICE|FACTURA|FATURA|INV)\.?\s*(?:PROFORMA\s*|COMERCIAL\s*)?(?:NO|N[º°O]|NUMBER|NRO|#)?\.?\s*[:#]?\s*"
                   r"(?=[A-Z0-9\-/]*\d)([A-Z0-9][A-Z0-9\-/]{2,})", texto)
     return m.group(1) if m else ""
@@ -495,9 +515,10 @@ def leer_items(renglones):
             filas.append((r, nums, nums[i], j, k, a, c, tt))
             continue
         if len(nums) >= 2 and id(r) not in qlineas:
-            vecinos = [o for o in renglones[max(0, n - 2):n][::-1] + renglones[n + 1:n + 2]
-                       if o.pagina == r.pagina and abs(o.top - r.top) < 25 and id(o) not in qlineas
-                       and not TOTAL.search(o.texto)]
+            # renglones cercanos (la cantidad puede estar unos renglones más abajo: «XXL 07pcs»), el más cerca primero
+            vecinos = sorted((o for o in renglones[max(0, n - 4):n] + renglones[n + 1:n + 5]
+                              if o.pagina == r.pagina and abs(o.top - r.top) <= 30 and id(o) not in qlineas
+                              and not TOTAL.search(o.texto)), key=lambda o: abs(o.top - r.top))
             par = _par_con_cantidad(nums, vecinos)
             if par:
                 q, o, j, k, a, c, tt = par
@@ -547,7 +568,11 @@ def leer_items(renglones):
             corte -= 1
         # la cantidad después de la descripción: el texto termina antes («Beetroot slices 1080 TR 4.320 PC»), sin
         # otras cantidades con su unidad pegadas (1080 TR)
-        if q in pal and 2 <= pal.index(q) < corte:
+        entre = pal[pal.index(q) + 1:min(pal.index(nums[j]) if nums[j] in pal else len(pal),
+                                          pal.index(nums[k]) if nums[k] in pal else len(pal))] if q in pal else []
+        sin_texto = all(p.es_numero or MONEDA.fullmatch(p.texto) or re.fullmatch(r"[A-Za-zÇ]{1,4}\.?", p.texto)
+                        for p in entre)
+        if q in pal and (2 <= pal.index(q) or pal.index(q) == 1 and sin_texto) and pal.index(q) < corte:
             corte = pal.index(q)
             while corte > 2 and (pal[corte - 1].es_numero or re.fullmatch(r"[A-ZÇ]{1,3}\.?", pal[corte - 1].texto)
                                  and pal[corte - 2].es_numero):
@@ -657,6 +682,15 @@ def leer_items(renglones):
                 (re.search(r"(?:^|\s)(\d{5,8})\s*\)?\s+([A-ZÁÉÍÓÚÑ]{3,}.*)", desc) if l_ocr else None)
             if mc:
                 codigo, desc = mc.group(1), mc.group(2)
+        # «# ENHV501 CINTURON CUERO…»: el código va después del #, lo de antes es de otra columna (talles)
+        mh = re.search(r"#\s*([A-Z]{2,}[A-Z0-9\-]*\d[A-Z0-9\-]*)\s+(?=\S*[A-Za-z])", desc)
+        if mh and (not codigo or not re.search(r"[A-Z]", codigo)):
+            codigo, desc = mh.group(1), (desc[:mh.start()].strip() + " " + desc[mh.end():]).strip() \
+                if re.search(r"[A-Za-z]{3,}", desc[:mh.start()]) else desc[mh.end():]
+        if not codigo:
+            mh = re.match(r"([A-Z]{2,}[A-Z0-9\-]*\d[A-Z0-9\-]*)\s+(?=[A-ZÁÉÍÓÚÑ]{3,})", desc)
+            if mh:
+                codigo, desc = mh.group(1), desc[mh.end():]
         mn = NCM_EN_TEXTO.search(desc)
         l = Linea(nro or str(n), codigo, desc, cant, precio, round(importe, 2), unidad or "UNIDADES", ancho, y=r.y)
         l.ocr = any(p.ocr for p in r.palabras)
@@ -1078,8 +1112,10 @@ def leer_carpeta(carpeta, usar_ocr=True, avisar=None):
 
     def nombre(p):
         return " ".join(list(p.relative_to(carpeta).parts[:-1]) + [p.stem])
-    archivos = [p for p in todos if p.suffix.lower() in (".pdf", ".tif", ".tiff", ".jpg", ".jpeg", ".png") + EXCEL
+    archivos = [p for p in todos if p.suffix.lower() in (".pdf", ".tif", ".tiff", ".jpg", ".jpeg", ".png", ".docx") + EXCEL
                 and not SALTEAR_ARCHIVO.search(nombre(p)) and not p.name.startswith("~$")]
+    cuadro = cuadro_clasificacion([p for p in todos if p.suffix.lower() in EXCEL
+                                   and re.search(r"(?i)clasificaci", nombre(p)) and not p.name.startswith("~$")])
     facturas, packings, transportes = [], [], []   # packings: (texto, renglones); transportes: (archivo, texto)
     packings_excel = []
     for a in (p for p in todos if p.suffix.lower() == ".pdf" and TRANSPORTE_ARCHIVO.search(nombre(p))
@@ -1093,6 +1129,9 @@ def leer_carpeta(carpeta, usar_ocr=True, avisar=None):
             avisar(f"Leyendo {a.name}…")
         if a.suffix.lower() in EXCEL:
             _leer_excel(a, facturas, packings_excel)
+            continue
+        if a.suffix.lower() == ".docx":
+            _leer_word(a, facturas)
             continue
         tipo, bloques = None, []
         for renglones in paginas_de(a, usar_ocr):
@@ -1133,7 +1172,9 @@ def leer_carpeta(carpeta, usar_ocr=True, avisar=None):
     facturas = [f for f in facturas if getattr(f, "excel", False) or _norm(f.numero) not in de_excel]
     for f in facturas:
         propios = [rs for texto, rs in packings if f.numero and _norm(f.numero) in _norm(texto)]
-        propios_x = [h for h in packings_excel if f.numero and _norm(f.numero) in _norm(h.texto)]
+        num = _norm(f.numero or "")
+        propios_x = [h for h in packings_excel if len(num) >= 3 and num in _norm(h.texto)] or \
+            [h for h in packings_excel if _packing_de(h, f)]
         if not propios and not propios_x and len(facturas) == 1:
             propios = [rs for _, rs in packings]
             propios_x = packings_excel
@@ -1165,8 +1206,43 @@ def leer_carpeta(carpeta, usar_ocr=True, avisar=None):
         for l in f.lineas:
             l.ncm, l.descripcion_es, l.motivo = sugerir(l.codigo, l.descripcion, l.ancho_mm,
                                                           getattr(l, "ncm_factura", ""), importador, proveedor)
+            opciones = cuadro.get(_norm(l.codigo)) if l.codigo else None
+            if opciones:
+                (ncm, origen_c), *otras = opciones
+                l.ncm = ncm
+                l.motivo = f"Cuadro de clasificación ({origen_c})." + (
+                    " También figura con " + ", ".join(sorted({n for n, _ in otras if n != ncm})) + ": revisar."
+                    if any(n != ncm for n, _ in otras) else "")
     _pesos_sin_packing(facturas, transportes)
     return facturas
+
+
+def cuadro_clasificacion(archivos):
+    """Cuadros de clasificación del cliente en la carpeta (Excel con el código del artículo y su posición
+    arancelaria: «Style | … | P.A. SIM»). Devuelve {código normalizado: [(ncm, archivo)]}."""
+    from .excel import _hojas_crudas
+    res = {}
+    for a in archivos:
+        try:
+            hojas = _hojas_crudas(a)
+        except Exception:
+            continue
+        for _, filas in hojas:
+            cod = pa = None
+            for fila in filas:
+                textos = [str(v).strip() if v is not None else "" for v in fila]
+                if cod is None:
+                    c = next((j for j, t in enumerate(textos)
+                              if re.fullmatch(r"(?i)style(\s*no\.?)?|art[ií]culo|c[oó]digo|ref\.?|modelo\s*no", t)), None)
+                    n = next((j for j, t in enumerate(textos)
+                              if re.search(r"(?i)^p\.?\s*a\.?\b|\bncm\b|posici[oó]n|partida|\bhs\b", t)), None)
+                    if c is not None and n is not None:
+                        cod, pa = c, n
+                    continue
+                if cod < len(textos) and pa < len(textos) and textos[cod] and \
+                        re.match(r"\d{4}\.?\d{2}", textos[pa]):
+                    res.setdefault(_norm(textos[cod].rstrip(".")), []).append((textos[pa], a.name))
+    return res
 
 
 def _cierra(lineas, renglones):
@@ -1255,6 +1331,36 @@ def _leer_excel(ruta, facturas, packings_excel):
         facturas.append(f)
 
 
+def _packing_de(h, f):
+    """¿El packing list en Excel es de esta factura, por los códigos de los productos? (Cuando el packing no nombra
+    el número de la factura; un packing puede servir a varias facturas del mismo proveedor.)"""
+    cods = {_norm(l.codigo) for l in f.lineas if l.codigo}
+    del_packing = {_norm(it.get("codigo") or "") for it in h.items} - {""}
+    return bool(cods and del_packing) and len(cods & del_packing) >= max(1, len(cods) / 2)
+
+
+def _leer_word(ruta, facturas):
+    """Factura en Word (.docx)."""
+    from .word import leer_docx
+    try:
+        texto, items = leer_docx(ruta)
+    except Exception:
+        return
+    if not items:
+        return
+    lineas = [Linea(it["nro"], it["codigo"], it["descripcion"], it["cant"], it["precio"], round(it["importe"], 2))
+              for it in items]
+    f = Factura(ruta.name, _numero_factura(texto), _fecha(texto), lineas)
+    f.texto = texto
+    suma = round(sum(l.importe for l in lineas), 2)
+    totales = [num_libre(m.group(1)) for m in re.finditer(r"(?i)\bTOTAL\b[^\d]{0,40}(\d[\d,]*\.\d{2})", texto)]
+    if not any(t is not None and abs(t - suma) < 0.005 for t in totales):
+        f.observaciones.append(f"No encontré en la factura un total igual a la suma de los ítems ({suma:,.2f}).")
+    if not all(it["descripcion"] for it in items):
+        f.observaciones.append("Factura en Word: no pude separar las descripciones de cada ítem; completarlas a mano.")
+    facturas.append(f)
+
+
 def pesos_excel(hojas, lineas, obs):
     """Neto y bruto de packing lists en Excel. Fila por fila si coinciden con la factura (mismas cantidades, en
     orden); si no, sumados por código y repartidos por cantidad; si no, el total repartido por cantidad."""
@@ -1292,6 +1398,7 @@ def pesos_excel(hojas, lineas, obs):
     if not filas:
         obs.append("El packing list en Excel no tiene pesos por renglón: neto y bruto quedan vacíos.")
         return None, None, bultos
+    sin_neto = not any(r["neto"] for r in filas)
     if len(filas) == len(lineas) and all(abs((r["cant"] or 0) - l.cantidad) < 0.01 for r, l in zip(filas, lineas)):
         for r, l in zip(filas, lineas):
             l.neto, l.bruto = round(r["neto"] or 0, 2), round(r["bruto"] or 0, 2)
@@ -1314,6 +1421,10 @@ def pesos_excel(hojas, lineas, obs):
             _repartir(lineas, sum(v[0] for v in por_codigo.values()), sum(v[1] for v in por_codigo.values()))
             obs.append("Neto y bruto: el packing list no se pudo unir renglón a renglón con la factura; el total se "
                        "repartió por cantidad.")
+    if sin_neto:
+        for l in lineas:
+            l.neto = round((l.bruto or 0) * 0.91, 2) if l.bruto else None
+        obs.append("El packing list solo trae el peso bruto: el neto se tomó como el 91 % del bruto.")
     return round(sum(l.neto or 0 for l in lineas), 2), round(sum(l.bruto or 0 for l in lineas), 2), bultos
 
 

@@ -22,11 +22,16 @@ El tipo de los demás documentos se deduce del nombre (`fact`, `inv`, `flete`, `
 
 Paso previo a la revisión: arma la planilla de ítems para cargar el DUA a partir de las facturas.
 
-1. Guardar en una carpeta las facturas en PDF o Excel (.xlsx), con o sin packing list adentro, o el packing en
+1. Guardar en una carpeta las facturas en PDF, Excel (.xlsx o .xls viejo) o Word (.docx), con o sin packing list adentro, o el packing en
    otro archivo. Las de Excel se leen directo de las celdas (sin OCR): la fila de encabezado se reconoce por los
    nombres de columna (Description, Pcs/Qty, Price, Amount, HSN, Total Nt Wt, Total Gr Wt, No. of Box…) y un ítem
-   puede ocupar varias filas. Si la misma factura está en Excel y en PDF, vale la de Excel. Los certificados de
-   origen se saltean.
+   puede ocupar varias filas (también con un segundo encabezado: STYLE NO. | STYLE NAME | COLOUR). En un packing
+   con varios productos en la misma caja, el peso de la caja se reparte por la suma de los talles de cada renglón;
+   si el packing trae solo el bruto, el neto es el 91 %. Si la misma factura está en Excel y en PDF, vale la de
+   Excel. Las de Word se leen de las celdas de la tabla (también cuando cada columna está en una sola celda alta).
+   Los certificados de origen y las carpetas de FOTOS se saltean. Si en la carpeta hay un **cuadro de
+   clasificación** del cliente (Excel con «clasificacion» en el nombre y columnas Style/Artículo y P.A./NCM), el
+   NCM de cada código sale de ahí.
 2. **Factura a planilla…** y elegir la carpeta (busca también dentro de sus subcarpetas; las que se llaman «planilla», «flete», «seguro», «BL»… se saltean como los archivos). Desde la línea de comandos: `elgonza --planilla "C:\ruta\carpeta"`.
 3. Se guarda `Planilla <carpeta>.xlsx` en la misma carpeta y se abre. Al lado del botón se elige el formato:
    Excel (.xlsx), OpenOffice (.ods) o los dos; queda guardado para la próxima vez. Por línea de comandos:
