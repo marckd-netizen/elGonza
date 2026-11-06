@@ -289,7 +289,8 @@ def buscar(codigo, descripcion, importador="", proveedor="", ruta=None):
     for i in candidatas:
         (imp, p, ncm, desc), dws, carpetas = filas[i]
         comunes = ws & dws
-        if not comunes:
+        # una sola palabra en común no alcanza («ANATOMIA VETERINARIA» no es una vacuna veterinaria)
+        if len(comunes) < min(2, len(ws), len(dws)):
             continue
         s = sum(idf[w] for w in comunes) / peso_total
         s *= min(1.0, 0.5 + len(comunes) / (len(dws) or 1))   # castiga descripciones largas que coinciden poco

@@ -137,7 +137,7 @@ def sugerir(codigo, descripcion, ancho_mm=None, ncm_factura="", importador="", p
         return _verificar(previo[0], previo[1], previo[2])
     if ncm_factura:
         d = re.sub(r"\D", "", ncm_factura)
-        legible = f"{d[:4]}.{d[4:6]}.{d[6:8]}"
+        legible = f"{d[:4]}.{d[4:6]}.{d[6:]}"
         ops = aperturas(d)
         if len(d) == 10:
             ops = [k for k in ops if k.replace(".", "") == d] or ops
@@ -149,6 +149,20 @@ def sugerir(codigo, descripcion, ancho_mm=None, ncm_factura="", importador="", p
             otras = "; ".join(f"{k}: {t[k].descripcion}" for k in ops)
             return _verificar(elegido, "", f"NCM de la factura ({legible}), con varias aperturas nacionales: {otras}. "
                                            "Elegir la que corresponda.")
+        # un HS code de otro país (4901.99.9000 de EE.UU.) solo coincide en los primeros 6 dígitos
+        seis = sorted(k for k in arancel() if len(k) == 13 and k.replace(".", "").startswith(d[:6])) \
+            if len(d) >= 6 else []
+        if seis:
+            regla = _por_reglas(codigo, descripcion, ancho_mm)
+            elegido = regla[0] if regla[0] in seis else next(
+                (k for k in seis if arancel()[k].descripcion.lower().lstrip("- ").startswith(("las demás", "los demás"))),
+                seis[0])
+            motivo = (f"La factura declara el HS {legible}, que no es un NCM; se toma la subpartida {d[:4]}.{d[4:6]}"
+                      + (f" y su única apertura nacional." if len(seis) == 1 else
+                         f", con varias aperturas: {'; '.join(seis)}. Elegir la que corresponda."))
+            if regla[0] and regla[0] not in seis:
+                motivo += f" Ojo: por la descripción podría ir en {regla[0]} ({regla[2].split('. ')[0]})."
+            return _verificar(elegido, regla[1] if regla[0] == elegido else NOMBRE_PARTIDA.get(elegido[:4], ""), motivo)
         aviso = f"El NCM de la factura ({legible}) no está en el arancel. "
     else:
         aviso = ""
@@ -196,7 +210,19 @@ def _por_reglas(codigo, descripcion, ancho_mm):
 
 # Reglas por palabras de la descripción: (patrón, NCM, descripción en español, motivo[, excepto]).
 # Van de lo más específico a lo más general; gana la primera que coincide.
+# nombre en español por partida, para la columna DESCRIPCION cuando el NCM sale del HS code de la factura
+NOMBRE_PARTIDA = {"4901": "LIBRO", "4902": "PUBLICACION PERIODICA", "4903": "LIBRO PARA COLOREAR",
+                  "4909": "TARJETAS POSTALES IMPRESAS", "4911": "IMPRESOS"}
+
 REGLAS = [
+    # capítulo 49: libros e impresos
+    (r"colou?ring book|libros? para colorear|para colorear|picture book|sticker book", "4903.00.00.00",
+     "LIBRO PARA COLOREAR", "Libro de estampas o para colorear, para niños (4903). Si no es para niños va en 4901."),
+    (r"postcards?|postales", "4909.00.00.00", "TARJETAS POSTALES IMPRESAS", "Tarjetas postales impresas (4909)."),
+    (r"dictionar|diccionario|encyclopa?edia|enciclopedia", "4901.91.00.00", "DICCIONARIO",
+     "Diccionarios y enciclopedias (4901.91)."),
+    (r"\bbooks?\b|\blibros?\b|novel|paperback|hardcover|tapa (dura|blanda)|\bISBN\b|biblia|bible", "4901.99.00.00",
+     "LIBRO", "Libro impreso (4901.99)."),
     # 84.81 grifería y válvulas
     (r"pressure reduc|reductora de presi", "8481.10.00.90", "VALVULA REDUCTORA DE PRESION",
      "Válvula reductora de presión (8481.10). Si es para vehículos va en .10 y si es para garrafas de GLP en .20."),

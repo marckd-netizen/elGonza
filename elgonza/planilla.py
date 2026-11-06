@@ -219,10 +219,13 @@ def _triple(nums):
                 for j in range(i + 1, k):
                     for a in nums[i].valores:
                         for c in nums[j].valores:
-                            if 1 in (a, c) or t in (a, c) or abs(a * c - t) > max(0.011, 0.0005 * t):
+                            # cantidad 1: precio e importe iguales («$ 15.61  1  $ 15.61»), con el 1 escrito tal cual
+                            uno = (a == 1 and nums[i].texto == "1" and c == t) or \
+                                  (c == 1 and nums[j].texto == "1" and a == t)
+                            if not uno and (1 in (a, c) or t in (a, c)) or abs(a * c - t) > max(0.011, 0.0005 * t):
                                 continue
                             # la cantidad va antes que el precio y suele ser la más grande
-                            clave = (k, t, i + j)
+                            clave = (not uno, k, t, i + j)
                             if not mejor or clave > mejor[0]:
                                 mejor = (clave, (i, j, k, a, c, t))
     return mejor[1] if mejor else None
@@ -380,6 +383,9 @@ def _alineadas(filas_nums, tol=4):
 MONEDA = re.compile(r"(?i)US?\$|\$|USD|EUR|€|R\$|U\$S")
 UNIDAD_INICIAL = re.compile(r"^(UN|UND|UNID|PCS|PC|PZS|KGS?|M2|MTS?|SETS?|ROLLS?)\s+(?=\S)")
 NCM_EN_TEXTO = re.compile(r"(?i)\bNCM\b\s*[:.]?\s*(\d{4}\.?\d{2}\.?\d{2}(?:\.?\d{2})?)")
+# NCM o HS code para toda la factura, en el encabezado («HS CODE: 4901,99,9000»)
+HS_EN_ENCABEZADO = re.compile(r"(?i)\b(?:H\.?S\.?\s*CODE|HTS(?:\s*CODE)?|NCM|TARIFF\s*CODE|PARTIDA(?:\s+ARANCELARIA)?)"
+                              r"\s*(?:NO\.?|N[º°])?\s*[:.]?\s*(\d{4}[.,\s]?\d{2}(?:[.,\s]?\d{2,4})?)\b")
 CODIGO_EN_TEXTO = re.compile(r"-\s*([A-Z]*\d{5,}[A-Z0-9]*)\b")
 
 
@@ -410,6 +416,17 @@ def leer_items(renglones):
     primera = filas[0][0]
     encabezados = [r for r in renglones if r.pagina == primera.pagina and primera.top - 60 <= r.top < primera.top]
     ancho_col = _columna(encabezados, r"WIDTH|ANCHO")
+    # si el encabezado dice dónde está la cantidad («Qty» después del precio), manda sobre el orden
+    col_cant = _columna(encabezados, r"(?i)QTY\.?|QUANTITY|CANT\.?|CANTIDAD|QTDE\.?|QUANT\.?|PCS")
+    if col_cant:
+        centro = (col_cant.x0 + col_cant.x1) / 2
+        arregladas = []
+        for f in filas:
+            r, nums, q, j, k, a, c, tt = f
+            if q in nums and abs((nums[j].x0 + nums[j].x1) / 2 - centro) < abs((q.x0 + q.x1) / 2 - centro):
+                f = (r, nums, nums[j], nums.index(q), k, c, a, tt)
+            arregladas.append(f)
+        filas = arregladas
     col_origen = _columna(encabezados, r"(?i)ORIGIN|ORIGEN|COUNTRY|PA[IÍ]S|C\.?O\.?O\.?")
     alto = _interlineado([f[0].top for f in filas])
     renglon = {}
@@ -483,6 +500,13 @@ def leer_items(renglones):
                     v = num_libre(p.texto)
                     ancho = v * 10 if v and _columna(encabezados, r"\(?CM\)?") else v
                     break
+        # códigos numéricos al principio: el del proveedor y, si sigue, el ISBN o EAN («70536287 9798337404356»)
+        mcod = re.match(r"(\d{5,})\s+(?:(\d{8,14})\s+)?(?=\S*[A-Za-z])", desc)
+        if mcod and (not codigo or codigo == mcod.group(1)):
+            codigo = mcod.group(1)
+            desc = desc[mcod.end():]
+            if mcod.group(2):
+                desc += (" ISBN " if re.match(r"97[89]\d{10}$", mcod.group(2)) else " EAN ") + mcod.group(2)
         mn = NCM_EN_TEXTO.search(desc)
         l = Linea(nro or str(n), codigo, desc, cant, precio, round(importe, 2), unidad or "UNIDADES", ancho, y=r.y)
         l.ncm_factura = re.sub(r"\D", "", mn.group(1)) if mn else ""
@@ -802,6 +826,15 @@ def leer_carpeta(carpeta, usar_ocr=True, avisar=None):
         else:
             f.observaciones.append("No encontré el packing list de esta factura: neto y bruto quedan vacíos.")
         _origen_factura(f, [texto for texto, rs in packings if any(rs is x for x in propios)])
+        hs = {re.sub(r"\D", "", m.group(1)) for m in HS_EN_ENCABEZADO.finditer(getattr(f, "texto", ""))}
+        hs = {h for h in hs if len(h) >= 6}
+        if len(hs) == 1:
+            h = hs.pop()
+            for l in f.lineas:
+                if not getattr(l, "ncm_factura", ""):
+                    l.ncm_factura = h
+            f.observaciones.append(f"La factura declara el HS code {h[:4]}.{h[4:6]}.{h[6:]} para toda la mercadería: "
+                                   "se toma como base del NCM sugerido.")
         importador = proveedor = ""
         try:
             from . import historial
@@ -867,8 +900,12 @@ def controles_factura(f, renglones):
         if not TOTAL.search(r.texto):
             continue
         vals = [v for p in r.palabras if p.es_numero for v in p.valores]
-        if any(abs(v - suma) <= 0.02 for v in vals):
+        cerca = [v for v in vals if abs(v - suma) <= 0.02]
+        if cerca:
             vistos = True
+            if all(abs(v - suma) > 0.005 for v in cerca):
+                f.observaciones.append(f"La suma de los ítems da {suma:,.2f} y el total de la factura dice "
+                                       f"{cerca[0]:,.2f}: diferencia de redondeo de {abs(cerca[0] - suma):.2f}.")
         for v in vals:
             if cant and abs(v - 2 * cant) <= 0.02:
                 f.observaciones.append(f"Un renglón de total dice {v:,.2f}, el doble de la cantidad real "

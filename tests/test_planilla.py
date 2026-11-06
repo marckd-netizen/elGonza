@@ -298,3 +298,28 @@ def test_origen_en_la_planilla(tmp_path):
     assert [l.origen for l in f.lineas] == ["TAIWAN", "CHINA"]
     assert "made in" not in f.lineas[0].descripcion.lower()
     assert any("Origen CHINA" in o and "otro origen" in o for o in f.observaciones)
+
+
+def test_factura_de_libros_cantidad_despues_del_precio(tmp_path):
+    """Precio, cantidad (casi siempre 1) e importe; código del proveedor e ISBN numéricos; HS code en el encabezado."""
+    enc = [(60, 40, "SHIPPERS NAME: TE TRAEMOS INC"), (60, 52, "COUNTRY: United States"),
+           (380, 40, "Export Invoice: # 523098"), (380, 52, "DATE: October 30, 2026"),
+           (60, 70, "HS CODE:"), (60, 82, "4901,99,9000"),
+           (450, 130, "Und"), (60, 140, "Item Code"), (110, 140, "Intl Item Code"), (200, 140, "Product"),
+           (380, 140, "Taxable Amount"), (450, 145, "Qty"), (490, 140, "Total Amount")]
+
+    def fila(y, cod, isbn, desc, precio, cant, total):
+        return [(60, y, cod), (110, y, isbn), (200, y, desc), (380, y, "$"), (395, y, precio), (450, y, cant),
+                (490, y, "$"), (505, y, total)]
+    filas = fila(170, "70536287", "9798337404356", "SIX OF CROWS- A DARKER...", "15.61", "1", "15.61") + \
+        fila(185, "64533045", "9798572382181", "ANATOMIA VETERINARIA D...", "8.41", "2", "16.82") + \
+        fila(200, "72207331", "9780785850328", "BOTANICA COLORING BOOK...", "7.85", "1", "7.85") + \
+        [(380, 230, "Total Amount"), (450, 230, "4"), (490, 230, "$ 40.28")]
+    _pdf(tmp_path / "invoice.pdf", [enc + filas])
+    f = leer_carpeta(tmp_path, usar_ocr=False)[0]
+    assert [(l.codigo, l.cantidad, l.precio, l.importe) for l in f.lineas] == [
+        ("70536287", 1, 15.61, 15.61), ("64533045", 2, 8.41, 16.82), ("72207331", 1, 7.85, 7.85)]
+    assert f.lineas[0].descripcion == "SIX OF CROWS- A DARKER... ISBN 9798337404356"
+    assert {l.ncm for l in f.lineas} == {"4901.99.00.00"}
+    assert f.lineas[0].descripcion_es == "LIBRO" and "4903" in f.lineas[2].motivo
+    assert {l.origen for l in f.lineas} == {"ESTADOS UNIDOS"}
