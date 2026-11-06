@@ -131,7 +131,19 @@ def main(argv=None):
 
 
 def abrir(ruta):
-    os.startfile(str(ruta)) if sys.platform == "win32" else webbrowser.open(Path(ruta).as_uri())
+    """Abre el archivo con su programa (Excel, OpenOffice, navegador). En Windows se lo pide al Explorador para que
+    Excel no quede como «hijo» de elGonza: si no, algunos antivirus le atribuyen a elGonza el guardado de Excel y lo
+    bloquean, y se pierden los cambios hechos a mano."""
+    if sys.platform == "win32":
+        import subprocess
+        try:
+            subprocess.Popen(["explorer.exe", str(Path(ruta).resolve())], close_fds=True,
+                             creationflags=getattr(subprocess, "DETACHED_PROCESS", 0))
+            return
+        except OSError:
+            os.startfile(str(ruta))
+            return
+    webbrowser.open(Path(ruta).as_uri())
 
 
 def ventana():
@@ -172,7 +184,7 @@ def ventana():
             if len(informes) == 1:
                 webbrowser.open(informes[0].as_uri())
             elif informes:
-                os.startfile(str(informes[0].parent)) if sys.platform == "win32" else webbrowser.open(informes[0].parent.as_uri())
+                abrir(informes[0].parent)
         except Exception as e:
             escribir(f"Error: {e}")
         finally:
@@ -248,7 +260,7 @@ def ventana():
         from .clientes import cargar, ruta_libro
         cargar()  # lo crea con ejemplos si no existe
         ruta = ruta_libro()
-        os.startfile(str(ruta)) if sys.platform == "win32" else webbrowser.open(ruta.as_uri())
+        abrir(ruta)
 
     botones = tk.Frame(marco)
     botones.pack(anchor="w", pady=8, fill="x")
