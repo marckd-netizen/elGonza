@@ -1389,7 +1389,8 @@ COLUMNAS = ["CANTIDAD", "VALOR", "NCM", "DESCRIPCION", "NETO", "BRUTO", "UNIDAD 
 
 
 def generar_planilla(facturas, ruta):
-    """Una sola factura: ITEM y las columnas del modelo. Varias: ITEM (correlativo), FACTURA y FECHA delante."""
+    """Una sola factura: ITEM y las columnas del modelo. Varias: ITEM (correlativo), FACTURA, FECHA e
+    ITEM FACTURA (el número de ítem en su factura) delante."""
     import openpyxl
     from openpyxl.styles import Font, PatternFill
     from .ncm import arancel
@@ -1398,12 +1399,13 @@ def generar_planilla(facturas, ruta):
     wb = openpyxl.Workbook()
     ws = wb.active
     ws.title = "Hoja1"
-    ws.append(["ITEM"] + (["FACTURA", "FECHA"] if varias else []) + COLUMNAS)
+    ws.append(["ITEM"] + (["FACTURA", "FECHA", "ITEM FACTURA"] if varias else []) + COLUMNAS)
     n = 0
     for f in facturas:
-        for l in f.lineas:
+        for k, l in enumerate(f.lineas, 1):
             n += 1
-            ws.append([n if varias else (int(l.nro) if l.nro.isdigit() else n)] + ([f.numero, f.fecha] if varias else [])
+            propio = int(l.nro) if l.nro.isdigit() else k
+            ws.append([n if varias else propio] + ([f.numero, f.fecha, propio] if varias else [])
                       + [l.cantidad, l.importe, None, l.descripcion_es or None, l.neto, l.bruto, l.unidad, l.codigo,
                          l.descripcion, l.ncm or None, l.origen or None])
     amarillo = PatternFill("solid", fgColor="FFF2CC")
@@ -1412,8 +1414,8 @@ def generar_planilla(facturas, ruta):
     ultima = ws.max_column - 1   # NCM SUGERIDO
     for fila in ws.iter_rows(min_row=1):
         fila[ultima - 1].fill = amarillo
-    d = 3 if varias else 1
-    anchos = [6] + ([16, 11] if varias else []) + [11, 11, 14, 55, 10, 10, 20, 20, 50, 15, 16]
+    d = 4 if varias else 1
+    anchos = [6] + ([16, 11, 8] if varias else []) + [11, 11, 14, 55, 10, 10, 20, 20, 50, 15, 16]
     for i, a in enumerate(anchos):
         ws.column_dimensions[openpyxl.utils.get_column_letter(i + 1)].width = a
     for fila in ws.iter_rows(min_row=2):

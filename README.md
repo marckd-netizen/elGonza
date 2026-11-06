@@ -37,7 +37,7 @@ UNIDAD MEDIDA, CODIGO FACTURA, DESCRIPCION FACTURA, **NCM SUGERIDO** a 10 dígit
 de la línea si la factura lo discrimina (columna de país u «made in …»); si no, del origen dicho para toda la factura
 o el packing list («COUNTRY OF ORIGIN», «PAÍS DE ORIGEN»; el puerto de origen no cuenta) y, si no, es el país del
 proveedor (el de su dirección). La hoja Notas dice de dónde salió. Si en la carpeta hay varias
-facturas, después de ITEM (correlativo de todas) van FACTURA (número) y FECHA (dd/mm/aaaa), y el resto se corre.
+facturas, después de ITEM (correlativo de todas) van FACTURA (número), FECHA (dd/mm/aaaa) e ITEM FACTURA (el número de ítem dentro de su factura), y el resto se corre.
 
 - Los ítems son los renglones donde cantidad × precio da el importe; código y descripción se juntan aunque estén
   partidos en dos renglones. También lee facturas sin numerar con la cantidad en un renglón aparte, arriba

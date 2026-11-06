@@ -101,10 +101,11 @@ def test_planilla_multifactura(tmp_path):
     _pdf(tmp_path / "INV-77.pdf", [_factura("INV-77", "05/09/2026", [fila], [(170, 220, "TOTAL"), (500, 220, "200.00")])])
     ruta, facturas = planilla_de_carpeta(tmp_path, usar_ocr=False, avisar=lambda m: None)
     ws = openpyxl.load_workbook(ruta)["Hoja1"]
-    assert [c.value for c in ws[1]][:5] == ["ITEM", "FACTURA", "FECHA", "CANTIDAD", "VALOR"]
+    assert [c.value for c in ws[1]][:6] == ["ITEM", "FACTURA", "FECHA", "ITEM FACTURA", "CANTIDAD", "VALOR"]
     filas = [[c.value for c in r] for r in ws.iter_rows(min_row=2)]
-    assert [r[:3] for r in filas] == [[1, "FLS-1", "31/08/2026"], [2, "FLS-1", "31/08/2026"], [3, "FLS-1", "31/08/2026"],
-                                      [4, "FLS-1", "31/08/2026"], [5, "INV-77", "05/09/2026"]]
+    assert [r[:4] for r in filas] == [[1, "FLS-1", "31/08/2026", 1], [2, "FLS-1", "31/08/2026", 2],
+                                      [3, "FLS-1", "31/08/2026", 3], [4, "FLS-1", "31/08/2026", 4],
+                                      [5, "INV-77", "05/09/2026", 1]]
     assert filas[4][-2] == "3919.10.20.00"
     assert any("packing" in o for o in facturas[1].observaciones)
 
